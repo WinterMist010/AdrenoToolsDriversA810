@@ -34,3 +34,5 @@ Old README:
 - https://github.com/bylaws/libadrenotools
 
 </details>
+
+Xclipse support wen eta?
