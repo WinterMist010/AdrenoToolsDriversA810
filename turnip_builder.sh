@@ -11,7 +11,7 @@ magiskdir="$workdir/turnip_module"
 ndkver="android-ndk-r29"
 ndk="$workdir/$ndkver/toolchains/llvm/prebuilt/linux-x86_64/bin"
 sdkver="34"
-mesasrc="https://github.com/whitebelyash/mesa-unified"
+mesasrc="https://github.com/WinterMist010/mesa-unified-a810.git"
 srcfolder="mesa"
 
 clear
