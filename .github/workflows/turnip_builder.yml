@@ -57,5 +57,5 @@ jobs:
         tag_name: tu_v${{ inputs.version }}
         name: Turnip A8XX v${{ inputs.version }}
         files: |
-           /tmp/Turnip-A810-gen8-V${{ inputs.version }}.zip
-           /tmp/Turnip-A810-gen8-sync-V${{ inputs.version }}.zip
+           /tmp/Turnip-A810-V${{ inputs.version }}.zip
+           /tmp/Turnip-A810-sync-V${{ inputs.version }}.zip
