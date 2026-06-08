@@ -31,10 +31,10 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         body: |
-          A8XX Turnip Vulkan V${{ inputs.version }}
-          Built from: https://github.com/whitebelyash/mesa-unified (turnip/gen8 branch)
+          A810 Turnip Vulkan V${{ inputs.version }}
+          https://github.com/WinterMist010/mesa-unified-a810.git
           
-          I didn't test this this much. Contact me on FEX (#android-wastelands) or EmuCore discord if there are any issues.
+          Fork from whitebelyash's turnip to provide better Adreno 810 configs
 
           
           >[!WARNING]
@@ -46,7 +46,7 @@ jobs:
           * Adreno 6XX Family: any GPU supported by the upstream Turnip
           
           GPUs other than 830/840 can have reduced performance and/or more glitches. Can't do anything about that, sorry!  
-          Adreno 810 is additionally very slow, I'm not sure if you even want to use Turnip there
+          Adreno 810 possibly has better performance than upstream, but may also have more bugs. Do NOT contact whitebelyash for support.
           
           Notes:
           * Disable DXVK_HUD if you see weird black artifacts
@@ -57,5 +57,5 @@ jobs:
         tag_name: tu_v${{ inputs.version }}
         name: Turnip A8XX v${{ inputs.version }}
         files: |
-           /tmp/a8xx-turnip-gen8-V${{ inputs.version }}.zip
-           /tmp/a8xx-turnip-gen8-sync-V${{ inputs.version }}.zip
+           /tmp/Turnip-A810-gen8-V${{ inputs.version }}.zip
+           /tmp/Turnip-A810-gen8-sync-V${{ inputs.version }}.zip
