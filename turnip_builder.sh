@@ -161,9 +161,9 @@ EOF
 	cat <<EOF >"meta.json"
 {
   "schemaVersion": 1,
-  "name": "A8XX Turnip v$BUILD_VERSION",
-  "description": "A8xx support with some hacks. Built from $1 branch",
-  "author": "whitebelyash",
+  "name": "Turnip-A810 V$BUILD_VERSION",
+  "description": "A810 targeted. Built from $1",
+  "author": "whitebelyash / WinterMist010",
   "packageVersion": "1",
   "vendor": "Mesa",
   "driverVersion": "Vulkan 1.4.335",
