@@ -1,3 +1,13 @@
+Experiment to provide better turnip drivers for the adreno 810. May or may not work. Currently sorting out bugs.
+
+This is a very messy project, dont expect it to go much farther.
+
+Built from: https://github.com/WinterMist010/mesa-unified-a810
+
+
+OG readme:
+
+
 # AdrenoTools Driver packages (Freedreno/Turnip CI)
 
 This repository holds scripts and workflow to autobuild new Turnip driver releases adapted for AdrenoTools usage.  
