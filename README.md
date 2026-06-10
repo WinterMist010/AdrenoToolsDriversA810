@@ -2,7 +2,7 @@ Experiment to provide better turnip drivers for the adreno 810. May or may not w
 
 This is a very messy project, dont expect it to go much farther.
 
-Built from: https://github.com/WinterMist010/mesa-unified-a810
+Built from: https://github.com/WinterMist010/mesa-unified-a810 turnip-gen8 branch.
 
 
 OG readme:
