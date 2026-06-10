@@ -4,6 +4,8 @@ This is a very messy project, dont expect it to go much farther.
 
 Built from: https://github.com/WinterMist010/mesa-unified-a810 turnip-gen8 branch.
 
+Contact me: voided.exe_ on discord.
+
 
 OG readme:
 
