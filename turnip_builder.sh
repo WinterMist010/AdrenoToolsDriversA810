@@ -24,8 +24,8 @@ run_all(){
 	check_deps
 	prepare_workdir
 	# This has path slash in the branch name and thus needs some workarounds
-	build_lib_for_android turnip/gen8 turnip-gen8 
-	build_lib_for_android turnip/gen8 turnip-gen8-sync apply
+	build_lib_for_android turnip-gen8 turnip-gen8 
+	build_lib_for_android turnip-gen8 turnip-gen8-sync apply
 	#build_lib_for_android gen8-yuck
 }
 
