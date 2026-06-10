@@ -60,19 +60,18 @@ prepare_workdir(){
 		unzip "$ndkver"-linux.zip &> /dev/null
 
 	echo "Downloading mesa source ..." $'\n'
-		git clone $mesasrc --depth=1 --no-single-branch $srcfolder
+		git clone $mesasrc --depth=1 --branch "turnip-gen8" $srcfolder
 		cd $srcfolder
 }
 
-# I havent been able to figure out how to make this patch work with my fork. Sorry!
-#apply_patch() {
-#	echo "Applying patch $1"
-#	if ! git apply --check $1; then
-#			echo "Failed to apply $1!"
-#			exit 1
-#		fi
-#    	git apply $1
-#}
+apply_patch() {
+	echo "Applying patch $1"
+	if ! git apply --check $1; then
+			echo "Failed to apply $1!"
+			exit 1
+		fi
+    	git apply $1
+}
 
 # $1 - real branch, $2 - escaped branch name
 build_lib_for_android(){
