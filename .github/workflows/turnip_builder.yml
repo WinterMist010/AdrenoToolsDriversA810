@@ -34,11 +34,14 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         body: |
+          **VERY VERY EXPERIMENTAL AND BUGGY MAY NOT WORK AT ALL**
+          
           A810 Turnip Vulkan V${{ inputs.version }}
-          https://github.com/WinterMist010/mesa-unified-a810.git
+          https://github.com/WinterMist010/mesa-unified-a810.git turnip-gen8 branch.
           
           Fork from whitebelyash's turnip to provide better Adreno 810 configs
 
+          Currently: Fixed num_ccu=2 instead of =1 which should give a nice performance boost, added more tweaks into freedreno_devices.py, added sysmem/gmem tweaks.
           
           >[!WARNING]
           > Please don't report issues to Mesa, PLEASE
