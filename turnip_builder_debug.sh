@@ -135,19 +135,18 @@ EOF
 			--cross-file "android-aarch64.txt" \
 			--native-file "native.txt" \
 			--prefix /tmp/turnip-$2 \
-			-Dbuildtype=debug \
-			-Dstrip=true \
+			-Dbuildtype=debugoptimized \
 			-Dplatforms=android \
 			-Dvideo-codecs= \
 			-Dplatform-sdk-version="$sdkver" \
-			-Dandroid-stub=true \
-			-Dgallium-drivers= \
+			-Db_ndebug=false
+			-Dgallium-drivers=freedreno \
 			-Dvulkan-drivers=freedreno \
 			-Dvulkan-beta=true \
-			-Dfreedreno-kmds=kgsl \
-			-Degl=disabled \
+			-Dfreedreno-kmds=kgsl \\
 			-Dplatform-sdk-version=36 \
 			-Dandroid-libbacktrace=disabled \
+			-Dstrip=true \
 			--reconfigure
 
 	echo "Compiling build files ..." $'\n'
