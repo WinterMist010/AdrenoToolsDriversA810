@@ -1,0 +1,43 @@
+name: Build "turnip"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  start_building_turnip:
+    runs-on: ubuntu-24.04
+    env:
+      BUILD_VERSION: ${{ inputs.version }}
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+
+    - name: Prepare environment
+      run: |
+        sudo sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
+        sudo apt update
+        sudo apt install build-essential flex bison glslang-tools
+        sudo apt install meson-1.5 
+
+    - name: Execute build script
+      run: bash ./turnip_builder.sh
+
+    - name: Release "turnip"
+      uses: softprops/action-gh-release@v1
+      with:
+        body: |
+          DEBUG BUILD. DONT TRY UNLESS YOU WANT TO (for some reason).
+
+        tag_name: tu_v${{ inputs.version }}
+        name: Turnip A8XX v${{ inputs.version }}
+        files: |
+           /tmp/Turnip-A810-V${{ inputs.version }}.zip
+  #       /tmp/Turnip-A810-sync-V${{ inputs.version }}.zip
