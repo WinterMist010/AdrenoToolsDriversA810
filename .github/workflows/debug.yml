@@ -28,7 +28,7 @@ jobs:
         sudo apt install meson-1.5 
 
     - name: Execute build script
-      run: bash ./turnip_builder.sh
+      run: bash ./turnip_builder_debug.sh
 
     - name: Release "turnip"
       uses: softprops/action-gh-release@v1
