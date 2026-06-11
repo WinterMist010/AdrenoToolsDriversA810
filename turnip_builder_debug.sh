@@ -135,12 +135,19 @@ EOF
 			--cross-file "android-aarch64.txt" \
 			--native-file "native.txt" \
 			--prefix /tmp/turnip-$2 \
+			-Dbuildtype=debug \
+			-Dstrip=true \
 			-Dplatforms=android \
+			-Dvideo-codecs= \
+			-Dplatform-sdk-version="$sdkver" \
+			-Dandroid-stub=true \
+			-Dgallium-drivers=freedreno \
+			-Dvulkan-drivers=freedreno \
+			-Dvulkan-beta=true \
+			-Dfreedreno-kmds=kgsl \
+			-Degl=disabled \
+			-Dplatform-sdk-version=36 \
 			-Dandroid-libbacktrace=disabled \
-            -Dvulkan-drivers=freedreno \
-            -Dgallium-drivers=freedreno \
-            -Dvulkan-beta=true \
-            -Dfreedreno-kmds=kgsl
 
 	echo "Compiling build files ..." $'\n'
 		ninja -C build install
