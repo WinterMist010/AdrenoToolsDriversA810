@@ -135,22 +135,13 @@ EOF
 			--cross-file "android-aarch64.txt" \
 			--native-file "native.txt" \
 			--prefix /tmp/turnip-$2 \
-			-Dbuildtype=debugoptimized \
-			-Dplatforms=android \
-			-Dvideo-codecs= \
-			-Dplatform-sdk-version="$sdkver" \
-			-Db_ndebug=false
-			-Dgallium-drivers=freedreno \
-			-Dvulkan-drivers=freedreno \
-			-Dvulkan-beta=true \
-			-Dfreedreno-kmds=kgsl \\
-			-Dplatform-sdk-version=36 \
-			-Dandroid-libbacktrace=disabled \
-			-Dstrip=true \
-			--reconfigure
+            -Dvulkan-drivers=freedreno \
+            -Dgallium-drivers=freedreno \
+            -Dvulkan-beta=true \
+            -Dfreedreno-kmds=kgsl
 
 	echo "Compiling build files ..." $'\n'
-		ninja -C build-android-aarch64 install
+		ninja -C build install
 
 	if ! [ -a /tmp/turnip-$2/lib/libvulkan_freedreno.so ]; then
 		echo -e "$red Build failed! $nocolor" && exit 1
