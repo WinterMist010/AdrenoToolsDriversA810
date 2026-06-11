@@ -135,6 +135,8 @@ EOF
 			--cross-file "android-aarch64.txt" \
 			--native-file "native.txt" \
 			--prefix /tmp/turnip-$2 \
+			-Dplatforms=android \
+			-Dandroid-libbacktrace=disabled \
             -Dvulkan-drivers=freedreno \
             -Dgallium-drivers=freedreno \
             -Dvulkan-beta=true \
