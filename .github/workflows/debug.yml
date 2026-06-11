@@ -1,4 +1,4 @@
-name: Build "turnip"
+name: Build "turnip debug"
 
 on:
   workflow_dispatch:
