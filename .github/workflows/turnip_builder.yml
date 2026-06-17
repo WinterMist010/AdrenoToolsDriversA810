@@ -37,7 +37,7 @@ jobs:
           **VERY VERY EXPERIMENTAL AND BUGGY MAY NOT WORK AT ALL**
           
           A810 Turnip Vulkan V${{ inputs.version }}
-          https://github.com/WinterMist010/mesa-unified-a810.git turnip-gen8 branch.
+          https://github.com/WinterMist010/mist-mesa-unified.git turnip/gen8 branch.
           
           Fork from whitebelyash's turnip to provide better Adreno 810 configs
 
@@ -64,4 +64,4 @@ jobs:
         name: Turnip A8XX v${{ inputs.version }}
         files: |
            /tmp/Turnip-A810-V${{ inputs.version }}.zip
-  #       /tmp/Turnip-A810-sync-V${{ inputs.version }}.zip
+           /tmp/Turnip-A810-sync-V${{ inputs.version }}.zip
