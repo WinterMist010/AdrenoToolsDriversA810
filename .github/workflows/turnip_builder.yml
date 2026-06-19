@@ -41,9 +41,7 @@ jobs:
           
           Fork from whitebelyash's turnip to provide better Adreno 810 configs
 
-          Currently: Fixed num_ccu=2 instead of =1 which should give a nice performance boost, added more tweaks into freedreno_devices.py, added sysmem/gmem tweaks.
-          
-          >[!WARNING]
+          Currently: 
           > Please don't report issues to Mesa, PLEASE
                     
           Supported GPUs:
