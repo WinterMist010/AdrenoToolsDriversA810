@@ -34,15 +34,16 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         body: |
-          **VERY VERY EXPERIMENTAL AND BUGGY MAY NOT WORK AT ALL**
+          **Very experimental and may introduce bugs and glitches**
           
           A810 Turnip Vulkan V${{ inputs.version }}
           https://github.com/WinterMist010/mist-mesa-unified.git turnip/gen8 branch.
           
-          Fork from whitebelyash's turnip to provide better Adreno 810 configs
+          Fork from whitebelyash's turnip to provide better Adreno 810 configs.
 
-          Currently: 
-          > Please don't report issues to Mesa, PLEASE
+          Currently improved: (placeholder)
+          
+          > Please don't report issues to Mesa. Report them to me @ discord: voided.exe_
                     
           Supported GPUs:
           * Adreno 8XX Family: 840, 830, 829, 825, 810
@@ -53,6 +54,7 @@ jobs:
           Adreno 810 possibly has better performance than upstream, but may also have more bugs. Do NOT contact whitebelyash for support.
           
           Notes:
+          * Use "sync" builds for better performance on DXVK 2.5+ with little to no downsides.
           * Disable DXVK_HUD if you see weird black artifacts
           * Apparently there are swizzling glitches in Eden & maybe other emulators, try increasing render scale(?)
           * Some games may require AMD/NVIDIA GPU to run and refuse to start on Qualcomm or block some features. I've included a patch to spoof as Steam Deck - use `TU_DEBUG=deck_emu`
