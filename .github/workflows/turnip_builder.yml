@@ -39,7 +39,7 @@ jobs:
           A810 Turnip Vulkan V${{ inputs.version }}
           https://github.com/WinterMist010/mist-mesa-unified.git turnip/gen8 branch.
 
-WARNING: TIMELINE SYNC PATCH IS EXTREMELY BROKEN FOR NOW. I see performance regressions of over 160fps in DXVK tests. I will try to improve this in the future.
+WARNING: TIMELINE SYNC PATCH IS EXTREMELY BROKEN FOR NOW. I see performance regressions of over 160fps in DXVK tests. (The412Banner's AIO graphics test "textured cube" DX11 test using DXVK 2.3.1 ARM64EC GPLASYNC). I will try to improve this in the future.
           
           Fork from whitebelyash's turnip to provide better Adreno 810 configs.
 
