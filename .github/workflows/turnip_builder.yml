@@ -18,7 +18,7 @@ jobs:
       BUILD_VERSION: ${{ inputs.version }}
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Prepare environment
       run: |
@@ -38,6 +38,8 @@ jobs:
           
           A810 Turnip Vulkan V${{ inputs.version }}
           https://github.com/WinterMist010/mist-mesa-unified.git turnip/gen8 branch.
+
+WARNING: TIMELINE SYNC PATCH IS EXTREMELY BROKEN FOR NOW. I see performance regressions of over 160fps in DXVK tests. I will try to improve this in the future.
           
           Fork from whitebelyash's turnip to provide better Adreno 810 configs.
 
@@ -54,7 +56,6 @@ jobs:
           Adreno 810 possibly has better performance than upstream, but may also have more bugs. Do NOT contact whitebelyash for support.
           
           Notes:
-          * Use "sync" builds for better performance on DXVK 2.5+ with little to no downsides.
           * Disable DXVK_HUD if you see weird black artifacts
           * Apparently there are swizzling glitches in Eden & maybe other emulators, try increasing render scale(?)
           * Some games may require AMD/NVIDIA GPU to run and refuse to start on Qualcomm or block some features. I've included a patch to spoof as Steam Deck - use `TU_DEBUG=deck_emu`
