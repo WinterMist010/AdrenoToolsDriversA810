@@ -166,7 +166,7 @@ EOF
   "author": "whitebelyash, WinterMist010",
   "packageVersion": "1",
   "vendor": "Mesa",
-  "driverVersion": "${_driver_version}",
+  "driverVersion": "Vulkan 1.4.353",
   "minApi": 28,
   "libraryName": "libvulkan_freedreno.so"
 }
