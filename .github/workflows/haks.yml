@@ -31,7 +31,7 @@ jobs:
       run: bash ./turnip_builder_haks.sh
 
     - name: Release "turnip"
-      uses: softprops/action-gh-release@v4
+      uses: softprops/action-gh-release@v1
       with:
         body: |
           HAKS BUILD. DONT TRY UNLESS YOU WANT TO (for some reason).
