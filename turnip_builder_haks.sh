@@ -11,7 +11,7 @@ magiskdir="$workdir/turnip_module"
 ndkver="android-ndk-r29"
 ndk="$workdir/$ndkver/toolchains/llvm/prebuilt/linux-x86_64/bin"
 sdkver="34"
-mesasrc="https://github.com/WinterMist010/mesa-unified-a810.git"
+mesasrc="https://github.com/WinterMist010/mist-mesa-unified.git"
 srcfolder="mesa"
 
 clear
@@ -24,8 +24,8 @@ run_all(){
 	check_deps
 	prepare_workdir
 	# This has path slash in the branch name and thus needs some workarounds
-	build_lib_for_android turnip-gen8 turnip-gen8 
-	build_lib_for_android turnip-gen8 turnip-gen8-sync apply
+	build_lib_for_android 810-bs 
+	#build_lib_for_android turnip/gen8 turnip-gen8-sync apply
 	#build_lib_for_android gen8-yuck
 }
 
@@ -60,7 +60,7 @@ prepare_workdir(){
 		unzip "$ndkver"-linux.zip &> /dev/null
 
 	echo "Downloading mesa source ..." $'\n'
-		git clone $mesasrc --depth=1 --branch "turnip-gen8" $srcfolder
+		git clone $mesasrc --depth=1 --no-single-branch $srcfolder
 		cd $srcfolder
 }
 
@@ -135,22 +135,23 @@ EOF
 			--cross-file "android-aarch64.txt" \
 			--native-file "native.txt" \
 			--prefix /tmp/turnip-$2 \
-			-Dbuildtype=debug \
+			-Dbuildtype=release \
 			-Dstrip=true \
 			-Dplatforms=android \
 			-Dvideo-codecs= \
 			-Dplatform-sdk-version="$sdkver" \
 			-Dandroid-stub=true \
-			-Dgallium-drivers=freedreno \
+			-Dgallium-drivers= \
 			-Dvulkan-drivers=freedreno \
 			-Dvulkan-beta=true \
 			-Dfreedreno-kmds=kgsl \
 			-Degl=disabled \
 			-Dplatform-sdk-version=36 \
 			-Dandroid-libbacktrace=disabled \
+			--reconfigure
 
 	echo "Compiling build files ..." $'\n'
-		ninja -C build install
+		ninja -C build-android-aarch64 install
 
 	if ! [ -a /tmp/turnip-$2/lib/libvulkan_freedreno.so ]; then
 		echo -e "$red Build failed! $nocolor" && exit 1
@@ -160,19 +161,19 @@ EOF
 	cat <<EOF >"meta.json"
 {
   "schemaVersion": 1,
-  "name": "Turnip-A810 V$BUILD_VERSION",
-  "description": "A810 targeted. Built from $1",
-  "author": "whitebelyash / WinterMist010",
+  "name": "Turnip-A810-V$BUILD_VERSION",
+  "description": "Better A810 support. Built from $1 branch",
+  "author": "whitebelyash, WinterMist010",
   "packageVersion": "1",
   "vendor": "Mesa",
-  "driverVersion": "Vulkan 1.4.335",
+  "driverVersion": "Vulkan 1.4.353",
   "minApi": 28,
   "libraryName": "libvulkan_freedreno.so"
 }
 EOF
-zip /tmp/Turnip-A810-V$BUILD_VERSION.zip libvulkan_freedreno.so meta.json
+zip /tmp/Turnip-A810-$2-V$BUILD_VERSION.zip libvulkan_freedreno.so meta.json
 cd -
-if ! [ -a /tmp/Turnip-A810-V$BUILD_VERSION.zip ]; then
+if ! [ -a /tmp/Turnip-A810-$2-V$BUILD_VERSION.zip ]; then
 	echo -e "$red Failed to pack the archive! $nocolor"
 fi
 }
