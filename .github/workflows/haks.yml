@@ -18,7 +18,7 @@ jobs:
       BUILD_VERSION: ${{ inputs.version }}
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v3
+      uses: actions/checkout@v1
 
     - name: Prepare environment
       run: |
@@ -28,7 +28,7 @@ jobs:
         sudo apt install meson-1.5 
 
     - name: Execute build script
-      run: bash ./turnip_builder_debug.sh
+      run: bash ./turnip_builder_haks.sh
 
     - name: Release "turnip"
       uses: softprops/action-gh-release@v4
