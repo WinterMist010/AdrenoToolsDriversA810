@@ -46,7 +46,7 @@ jobs:
           > Please don't report issues to Mesa. Report them to me @ discord: voided.exe_
                     
           Supported GPUs:
-          * Adreno 8XX Family: 840, 830, 829, 825, 810
+          * Adreno 8XX Family: 840, 830, 829, 825, 812 (untested!), 810
           * Adreno 7XX Family: any GPU supported by the upstream Turnip + 710/720/722 (sysmem only) patches from Vauzi17
           * Adreno 6XX Family: any GPU supported by the upstream Turnip
           
