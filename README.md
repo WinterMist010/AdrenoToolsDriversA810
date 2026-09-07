@@ -6,6 +6,8 @@ Built from: [https://github.com/WinterMist010/mesa-unified-a810](https://github.
 
 Contact me: voided.exe_ on discord.
 
+Disclaimer: Some code is generated with AI or written with the help of AI. Changes are always tested before major release (hence the releases labelled "vvexp".)
+
 
 OG readme:
 
