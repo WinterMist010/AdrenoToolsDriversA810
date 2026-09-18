@@ -23,7 +23,7 @@ run_all(){
 	echo "Current directory: $base_workdir"
 	check_deps
 	prepare_workdir
-	# This has path slash in the branch name and thus needs some workarounds
+	# 
 	build_lib_for_android new-a810 
 	build_lib_for_android new-a810 sync apply
 	#build_lib_for_android gen8-yuck
@@ -64,14 +64,14 @@ prepare_workdir(){
 		cd $srcfolder
 }
 
-#apply_patch() {
-#	echo "Applying patch $1"
-#	if ! git apply --check $1; then
-#			echo "Failed to apply $1!"
-#			exit 1
-#		fi
-#    	git apply $1
-#}
+apply_patch() {
+	echo "Applying patch $1"
+	if ! git apply --check $1; then
+			echo "Failed to apply $1!"
+			exit 1
+		fi
+    	git apply $1
+}
 
 # $1 - real branch, $2 - escaped branch name
 build_lib_for_android(){
@@ -162,16 +162,16 @@ EOF
 {
   "schemaVersion": 1,
   "name": "Turnip-New-A810-V$BUILD_VERSION",
-  "description": "Better A810 support. Built from $1 branch. Rebase to mesa 26.3",
+  "description": "Better A810/812 support. Built from $1 branch. Rebase to mesa 26.2.99",
   "author": "whitebelyash, WinterMist010",
   "packageVersion": "1",
   "vendor": "Mesa",
-  "driverVersion": "Vulkan 1.4.353",
+  "driverVersion": "Vulkan 1.4.358",
   "minApi": 28,
   "libraryName": "libvulkan_freedreno.so"
 }
 EOF
-zip /tmp/Turnip-New-A810-V$BUILD_VERSION.zip libvulkan_freedreno.so meta.json
+zip /tmp/Turnip-A81X-V$BUILD_VERSION.zip libvulkan_freedreno.so meta.json
 cd -
 if ! [ -a /tmp/Turnip-New-A810-V$BUILD_VERSION.zip ]; then
 	echo -e "$red Failed to pack the archive! $nocolor"
