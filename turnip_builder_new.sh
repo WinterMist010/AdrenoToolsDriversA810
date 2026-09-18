@@ -173,7 +173,7 @@ EOF
 EOF
 zip /tmp/Turnip-A81X-V$BUILD_VERSION.zip libvulkan_freedreno.so meta.json
 cd -
-if ! [ -a /tmp/Turnip-New-A810-V$BUILD_VERSION.zip ]; then
+if ! [ -a /tmp/Turnip-A81X-V$BUILD_VERSION.zip ]; then
 	echo -e "$red Failed to pack the archive! $nocolor"
 fi
 }
