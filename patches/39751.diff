@@ -188,7 +188,7 @@ index 4c6d9eca27f3025c464255a984224e72d2f5c98e..04efb2871b805c25a1703fb45668f996
  /* safe_ioctl is not enough as restarted waits would not adjust the timeout
   * which could lead to waiting substantially longer than requested
   */
-@@ -1249,6 +1354,396 @@ const struct vk_sync_type vk_kgsl_sync_type = {
+@@ -1249,6 +1354,402 @@ const struct vk_sync_type vk_kgsl_sync_type = {
     .export_sync_file = vk_kgsl_sync_export_sync_file,
  };
  
@@ -250,11 +250,12 @@ index 4c6d9eca27f3025c464255a984224e72d2f5c98e..04efb2871b805c25a1703fb45668f996
 +
 +   int ret = kgsl_timeline_signal_ioctl(device->physical_device->local_fd,
 +                                        timeline_vals, signal_count);
++   int err = errno;
 +   STACK_ARRAY_FINISH(timeline_vals);
 +
 +   if (ret) {
 +      return vk_errorf(_device, VK_ERROR_UNKNOWN,
-+                       "kgsl_timeline_signal failed: %m");
++                       "kgsl_timeline_signal failed: %s", strerror(err));
 +   }
 +   return VK_SUCCESS;
 +}
@@ -298,14 +299,15 @@ index 4c6d9eca27f3025c464255a984224e72d2f5c98e..04efb2871b805c25a1703fb45668f996
 +   int ret = kgsl_timeline_wait_ioctl(device->physical_device->local_fd,
 +                                      get_relative_ns(abs_timeout_ns),
 +                                      timeline_vals, wait_count, flag);
++   int err = errno;
 +   STACK_ARRAY_FINISH(timeline_vals);
 +
 +   if (ret) {
-+      if (errno == EBUSY || errno == ETIMEDOUT)
++      if (err == EBUSY || err == ETIMEDOUT)
 +         return VK_TIMEOUT;
 +
 +      return vk_errorf(_device, VK_ERROR_UNKNOWN,
-+                       "kgsl_timeline_wait failed: %m");
++                       "kgsl_timeline_wait failed: %s", strerror(err));
 +   }
 +   return VK_SUCCESS;
 +}
@@ -379,7 +381,7 @@ index 4c6d9eca27f3025c464255a984224e72d2f5c98e..04efb2871b805c25a1703fb45668f996
 +                       "kgsl_timeline_create failed: %m");
 +   }
 +
-+   binary->binary_timeline.next_point = (initial_value == 0);
++   binary->binary_timeline.next_point = initial_value == 0 ? 1 : initial_value;
 +   binary->sync_file.fd = -1;
 +   return VK_SUCCESS;
 +}
@@ -467,14 +469,15 @@ index 4c6d9eca27f3025c464255a984224e72d2f5c98e..04efb2871b805c25a1703fb45668f996
 +   int ret = kgsl_timeline_wait_ioctl(device->physical_device->local_fd,
 +                                      get_relative_ns(abs_timeout_ns),
 +                                      timeline_vals, wait_count, flag);
++   int err = errno;
 +   STACK_ARRAY_FINISH(timeline_vals);
 +
 +   if (ret) {
-+      if (errno == EBUSY || errno == ETIMEDOUT)
++      if (err == EBUSY || err == ETIMEDOUT)
 +         return VK_TIMEOUT;
 +
 +      return vk_errorf(_device, VK_ERROR_UNKNOWN,
-+                       "kgsl_timeline_wait failed: %m");
++                       "kgsl_timeline_wait failed: %s", strerror(err));
 +   }
 +   return VK_SUCCESS;
 +}
@@ -485,6 +488,9 @@ index 4c6d9eca27f3025c464255a984224e72d2f5c98e..04efb2871b805c25a1703fb45668f996
 +                               int fd)
 +{
 +   struct vk_kgsl_binary *binary = container_of(sync, struct vk_kgsl_binary, vk);
++
++   if (binary->sync_file.fd != -1)
++      close(binary->sync_file.fd);
 +
 +   binary->type = VK_KGSL_SYNC_TYPE_FENCE;
 +   binary->sync_file.fd = os_dupfd_cloexec(fd);
@@ -812,12 +818,12 @@ index 4c6d9eca27f3025c464255a984224e72d2f5c98e..04efb2871b805c25a1703fb45668f996
 -                                      start_ts, &clocks);
 -      gpu_offset = clocks.gpu_ts_offset;
 -   }
-+   if (profiling.buffer)
++   if (ret == 0 && profiling.buffer)
 +      ret = kgsl_profiling_end_perfetto_submit(&profiling, queue);
  #endif
  
     kgsl_syncobj_destroy(&wait_sync);
-@@ -1652,23 +2179,398 @@ kgsl_queue_submit(struct tu_queue *queue, void *_submit,
+@@ -1652,23 +2179,404 @@ kgsl_queue_submit(struct tu_queue *queue, void *_submit,
        signal_sync->timestamp = timestamp;
     }
  
@@ -1062,6 +1068,7 @@ index 4c6d9eca27f3025c464255a984224e72d2f5c98e..04efb2871b805c25a1703fb45668f996
 +   }
 +
 +   int ret;
++   int err = 0;
 +   uint32_t timestamp;
 +
 +   /* For sanity: we're either dealing with commands or binds. In either case,
@@ -1109,6 +1116,7 @@ index 4c6d9eca27f3025c464255a984224e72d2f5c98e..04efb2871b805c25a1703fb45668f996
 +
 +      ret = safe_ioctl(queue->device->physical_device->local_fd,
 +                       IOCTL_KGSL_GPU_COMMAND, &req);
++      err = errno;
 +
 +      timestamp = req.timestamp;
 +   }
@@ -1143,6 +1151,7 @@ index 4c6d9eca27f3025c464255a984224e72d2f5c98e..04efb2871b805c25a1703fb45668f996
 +
 +         ret = safe_ioctl(queue->device->physical_device->local_fd,
 +                          IOCTL_KGSL_GPU_AUX_COMMAND, &aux_cmd);
++         err = errno;
 +
 +         timestamp = aux_cmd.timestamp;
 +         i++;
@@ -1153,14 +1162,16 @@ index 4c6d9eca27f3025c464255a984224e72d2f5c98e..04efb2871b805c25a1703fb45668f996
 +   }
 +
 +#if HAVE_PERFETTO
-+   if (profiling.buffer)
++   if (ret == 0 && profiling.buffer) {
 +      ret = kgsl_profiling_end_perfetto_submit(&profiling, queue);
++      err = errno;
++   }
 +#endif
 +
 +   VkResult result = VK_SUCCESS;
 +   if (ret) {
 +      result = vk_device_set_lost(&queue->device->vk,
-+                                  "submit failed: %s\n", strerror(errno));
++                                  "submit failed: %s\n", strerror(err));
 +      goto fail_submit;
     }
  
@@ -1174,10 +1185,11 @@ index 4c6d9eca27f3025c464255a984224e72d2f5c98e..04efb2871b805c25a1703fb45668f996
 +
 +   ret = safe_ioctl(queue->device->physical_device->local_fd,
 +                    IOCTL_KGSL_GPU_AUX_COMMAND, &aux_cmd);
++   err = errno;
 +   if (ret) {
 +      result = vk_device_set_lost(&queue->device->vk,
 +                                  "timeline submit failed: %s\n",
-+                                  strerror(errno));
++                                  strerror(err));
 +      goto fail_submit;
 +   }
 +
