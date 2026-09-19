@@ -24,8 +24,9 @@ run_all(){
 	check_deps
 	prepare_workdir
 	# 
-	build_lib_for_android new-a810 
-	build_lib_for_android new-a810 sync apply
+	# $2 - escaped branch name (used for install prefix), $4 - output zip name (without .zip)
+	build_lib_for_android new-a810 new-a810 "" Turnip-A81X-V$BUILD_VERSION
+	build_lib_for_android new-a810 new-a810-patched sync apply Turnip-A81X-sync-V$BUILD_VERSION
 	#build_lib_for_android gen8-yuck
 }
 
@@ -73,7 +74,7 @@ apply_patch() {
     	git apply $1
 }
 
-# $1 - real branch, $2 - escaped branch name
+# $1 - real branch, $2 - escaped branch name, $3 - "apply" to apply patches, $4 - output zip name (without .zip)
 build_lib_for_android(){
 	echo "==== Building Mesa on $1 branch ===="
 	git checkout --force origin/$1
@@ -82,7 +83,11 @@ build_lib_for_android(){
 		for patch in $base_workdir/patches/*; do
 			apply_patch $patch
 		done
+		meta_name="Turnip-New-A810-sync-V$BUILD_VERSION"
+	else
+		meta_name="Turnip-New-A810-V$BUILD_VERSION"
 	fi
+	zipname="$4"
 	echo "Pushing TU_VERSION..."
 	echo "#define TUGEN8_DRV_VERSION \"v$BUILD_VERSION\"" > ./src/freedreno/vulkan/tu_version.h
 	#Workaround for using Clang as c compiler instead of GCC
@@ -161,7 +166,7 @@ EOF
 	cat <<EOF >"meta.json"
 {
   "schemaVersion": 1,
-  "name": "Turnip-New-A810-V$BUILD_VERSION",
+  "name": "$meta_name",
   "description": "Better A810/812 support. Built from $1 branch. Rebase to mesa 26.2.99",
   "author": "whitebelyash, WinterMist010",
   "packageVersion": "1",
@@ -171,9 +176,9 @@ EOF
   "libraryName": "libvulkan_freedreno.so"
 }
 EOF
-zip /tmp/Turnip-A81X-V$BUILD_VERSION.zip libvulkan_freedreno.so meta.json
+zip /tmp/$zipname.zip libvulkan_freedreno.so meta.json
 cd -
-if ! [ -a /tmp/Turnip-A81X-V$BUILD_VERSION.zip ]; then
+if ! [ -a /tmp/$zipname.zip ]; then
 	echo -e "$red Failed to pack the archive! $nocolor"
 fi
 }
