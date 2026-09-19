@@ -60,7 +60,7 @@ jobs:
           * GMEM rendering produces glitchy picture on A830 (write page faults), disable it with `TU_DEBUG=sysmem`. It's pretty much useless for PC emulation anyway.
 
         tag_name: tu_v${{ inputs.version }}
-        name: Turnip A810/812 V${{ inputs.version }}
+        name: Turnip A81X V${{ inputs.version }}
         files: |
            /tmp/Turnip-A81X-V${{ inputs.version }}.zip
-           /tmp/Turnip-A81X-V${{ inputs.version }}-sync.zip
+           /tmp/Turnip-A81X-sync-V${{ inputs.version }}.zip
