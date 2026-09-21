@@ -26,7 +26,7 @@ run_all(){
 	# 
 	# $2 - escaped branch name (used for install prefix), $4 - output zip name (without .zip)
 	build_lib_for_android new-a810 new-a810 "" Turnip-A81X-V$BUILD_VERSION
-	build_lib_for_android new-a810 new-a810-patched sync apply Turnip-A81X-sync-V$BUILD_VERSION
+	build_lib_for_android new-a810 new-a810-patched apply Turnip-A81X-sync-V$BUILD_VERSION
 	#build_lib_for_android gen8-yuck
 }
 
