@@ -167,11 +167,11 @@ EOF
 {
   "schemaVersion": 1,
   "name": "$meta_name",
-  "description": "Better A810/812 support. Built from $1 branch. Rebase to mesa 26.2.99",
+  "description": "Better A810/812 support. Built from $1 branch. Rebase to mesa 26.3.0",
   "author": "whitebelyash, WinterMist010",
   "packageVersion": "1",
   "vendor": "Mesa",
-  "driverVersion": "Vulkan 1.4.358",
+  "driverVersion": "Vulkan 1.4.363",
   "minApi": 28,
   "libraryName": "libvulkan_freedreno.so"
 }
