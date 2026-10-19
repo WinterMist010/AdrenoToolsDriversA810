@@ -1,0 +1,415 @@
+Incremental fixes on top of 39751_3.diff (tu/kgsl: timeline-based sync).
+Apply to a tree that already has 39751_3.diff applied:
+
+    git apply --check tu-kgsl-timeline-improvements.patch && git apply tu-kgsl-timeline-improvements.patch
+
+ * binary sync: import of fd == -1 (already signaled) no longer hands -1 to the kernel as a fence syncpoint
+ * binary sync: CPU waits on an imported sync file are handled instead of waiting forever on the unsignaled timeline
+ * submit: queue timeline is only waited on by empty submits (no per-submit stall on the previous submit's retirement)
+ * submit: fast path for empty submits whose waits are already signaled (the half the comments describe but the diff lacked)
+ * submit: no SYNC flag / zero-count syncpoint list on bind submits without waits
+ * profiling: embed the kgsl_command_object instead of vk_alloc'ing it per traced submit (it was never freed)
+ * load: TU_KGSL_NO_TIMELINE=1 forces the old syncobj implementation
+ * misc: wait_count == 0 guard in timeline wait_many, ret/timestamp initialised, queue->fence updated for empty submits
+
+diff --git a/src/freedreno/vulkan/tu_knl_kgsl.cc b/src/freedreno/vulkan/tu_knl_kgsl.cc
+--- a/src/freedreno/vulkan/tu_knl_kgsl.cc
++++ b/src/freedreno/vulkan/tu_knl_kgsl.cc
+@@ -1444,6 +1444,9 @@
+                            uint64_t abs_timeout_ns)
+ {
+    struct tu_device *device = container_of(_device, struct tu_device, vk);
++
++   if (wait_count == 0)
++      return VK_SUCCESS;
+ 
+    STACK_ARRAY(struct kgsl_timeline_val, timeline_vals, wait_count);
+    for (uint32_t i = 0; i < wait_count; ++i) {
+@@ -1601,6 +1604,27 @@
+    return VK_SUCCESS;
+ }
+ 
++/* Non-blocking check, used by the polling fallback of vk_kgsl_binary_wait_many. */
++static bool
++vk_kgsl_binary_is_signaled(struct tu_device *device,
++                           struct vk_kgsl_binary *binary)
++{
++   if (binary->type == VK_KGSL_SYNC_TYPE_FENCE) {
++      /* An imported sync file without an fd is already signaled. */
++      return binary->sync_file.fd < 0 ||
++             sync_wait(binary->sync_file.fd, 0) == 0;
++   }
++
++   struct kgsl_timeline_val timeline_val = {
++      .seqno = binary->binary_timeline.next_point,
++      .timeline = binary->binary_timeline.id,
++   };
++
++   return kgsl_timeline_wait_ioctl(device->physical_device->local_fd, 0,
++                                   &timeline_val, 1,
++                                   KGSL_TIMELINE_WAIT_ALL) == 0;
++}
++
+ static VkResult
+ vk_kgsl_binary_wait_many(struct vk_device *_device,
+                          uint32_t wait_count,
+@@ -1612,6 +1636,57 @@
+ 
+    if (wait_count == 0)
+       return VK_SUCCESS;
++
++   const bool wait_any = wait_flags & VK_SYNC_WAIT_ANY;
++
++   /* A sync holding an imported sync file (e.g. an Android native fence)
++    * can't be waited on through the timeline ioctl.
++    */
++   bool has_sync_file = false;
++   for (uint32_t i = 0; i < wait_count; ++i) {
++      struct vk_kgsl_binary *binary = container_of(waits[i].sync, struct vk_kgsl_binary, vk);
++      if (binary->type == VK_KGSL_SYNC_TYPE_FENCE) {
++         has_sync_file = true;
++         break;
++      }
++   }
++
++   if (has_sync_file) {
++      if (wait_count == 1) {
++         struct vk_kgsl_binary *binary = container_of(waits[0].sync, struct vk_kgsl_binary, vk);
++         if (binary->sync_file.fd < 0)
++            return VK_SUCCESS;
++
++         if (sync_wait(binary->sync_file.fd, get_relative_ms(abs_timeout_ns)) == 0)
++            return VK_SUCCESS;
++
++         if (errno == ETIME)
++            return VK_TIMEOUT;
++
++         return vk_errorf(_device, VK_ERROR_UNKNOWN,
++                          "sync_wait failed: %m");
++      }
++
++      /* Multiple waits with an imported sync file among them are rare
++       * enough that polling is good enough.
++       */
++      for (;;) {
++         uint32_t signaled_count = 0;
++         for (uint32_t i = 0; i < wait_count; ++i) {
++            struct vk_kgsl_binary *binary = container_of(waits[i].sync, struct vk_kgsl_binary, vk);
++            if (vk_kgsl_binary_is_signaled(device, binary))
++               ++signaled_count;
++         }
++
++         if (signaled_count == wait_count || (wait_any && signaled_count > 0))
++            return VK_SUCCESS;
++
++         if ((uint64_t) os_time_get_nano() >= abs_timeout_ns)
++            return VK_TIMEOUT;
++
++         os_time_sleep(100);
++      }
++   }
+ 
+    STACK_ARRAY(struct kgsl_timeline_val, timeline_vals, wait_count);
+    for (uint32_t i = 0; i < wait_count; ++i) {
+@@ -1651,11 +1726,23 @@
+ {
+    struct vk_kgsl_binary *binary = container_of(sync, struct vk_kgsl_binary, vk);
+ 
++   /* fd == -1 is a valid import and means "already signaled". Keep it as a
++    * sync file without an fd; every consumer treats that as signaled.
++    */
++   int new_fd = -1;
++   if (fd >= 0) {
++      new_fd = os_dupfd_cloexec(fd);
++      if (new_fd < 0) {
++         return vk_errorf(_device, VK_ERROR_OUT_OF_HOST_MEMORY,
++                          "failed to dup sync file fd: %m");
++      }
++   }
++
+    if (binary->sync_file.fd != -1)
+       close(binary->sync_file.fd);
+ 
+    binary->type = VK_KGSL_SYNC_TYPE_FENCE;
+-   binary->sync_file.fd = os_dupfd_cloexec(fd);
++   binary->sync_file.fd = new_fd;
+    return VK_SUCCESS;
+ }
+ 
+@@ -1862,8 +1949,8 @@
+ }
+ 
+ struct kgsl_profiling {
+-   struct kgsl_command_object *cmd_obj;
+    struct kgsl_cmdbatch_profiling_buffer *buffer;
++   struct kgsl_command_object cmd_obj;
+ 
+    uint64_t gpu_offset;
+ #if HAVE_PERFETTO
+@@ -1882,14 +1969,9 @@
+                         sizeof(struct kgsl_cmdbatch_profiling_buffer), 4);
+    mtx_unlock(&queue->device->kgsl_profiling_mutex);
+ 
+-   profiling->cmd_obj = (struct kgsl_command_object *)
+-      vk_alloc(&queue->device->vk.alloc, sizeof(*profiling->cmd_obj),
+-               alignof(struct kgsl_command_object),
+-               VK_SYSTEM_ALLOCATION_SCOPE_COMMAND);
+-
+    struct tu_suballoc_bo *bo = &u_trace_submission_data->kgsl_timestamp_bo;
+ 
+-   *profiling->cmd_obj = (struct kgsl_command_object) {
++   profiling->cmd_obj = (struct kgsl_command_object) {
+       .offset = bo->iova - bo->bo->iova,
+       .gpuaddr = bo->bo->iova,
+       .size = sizeof(struct kgsl_cmdbatch_profiling_buffer),
+@@ -2100,9 +2182,9 @@
+          .context_id = queue->msm_queue_id,
+       };
+ 
+-      if (profiling.cmd_obj) {
++      if (profiling.buffer) {
+          req.flags |= KGSL_CMDBATCH_PROFILING;
+-         req.objlist = (uintptr_t) profiling.cmd_obj;
++         req.objlist = (uintptr_t) &profiling.cmd_obj;
+          req.objsize = sizeof(struct kgsl_command_object);
+          req.numobjs = 1;
+       }
+@@ -2198,38 +2280,40 @@
+    struct tu_kgsl_queue_submit *submit =
+       (struct tu_kgsl_queue_submit *)_submit;
+ 
+-   /* The queue timeline is included in the waits and signals, as it is
+-    * necessary for the fast path below to function properly. Wait on the
+-    * current queue timeline seqno will ensure that work of previous submit
+-    * was completed. Signal of an increased queue timeline seqno will indicate
+-    * the work of the current submit was completed.
++   const bool has_work =
++      submit->commands.size != 0 || submit->bind_cmds.size != 0;
++
++   /* Every submit signals an increased seqno on the queue timeline, which
++    * lets a later empty submit tell whether all earlier work on this queue
++    * has finished. Only empty submits wait on it. A submit with commands is
++    * already ordered after the previous ones by the context, and a syncpoint
++    * on the previous submit's completion would keep KGSL from queueing the
++    * next batch until the GPU has drained the previous one.
+     */
+    const uint64_t previous_submit_timeline_seqno = queue->kgsl_queue_timeline_seqno;
+    const uint64_t current_submit_timeline_seqno = previous_submit_timeline_seqno + 1;
+ 
++   /* A sync file without an fd is already signaled and needs no syncpoint. */
+    uint32_t wait_timeline_vals_count = 0;
+    uint32_t wait_fences_count = 0;
+-   {
+-      for (uint32_t i = 0; i < wait_count; ++i) {
+-         switch (vk_kgsl_get_sync_type(waits[i].sync)) {
+-         case VK_KGSL_SYNC_TYPE_TIMELINE:
+-         case VK_KGSL_SYNC_TYPE_BINARY:
+-            ++wait_timeline_vals_count;
+-            break;
+-         case VK_KGSL_SYNC_TYPE_FENCE:
++   for (uint32_t i = 0; i < wait_count; ++i) {
++      switch (vk_kgsl_get_sync_type(waits[i].sync)) {
++      case VK_KGSL_SYNC_TYPE_TIMELINE:
++      case VK_KGSL_SYNC_TYPE_BINARY:
++         ++wait_timeline_vals_count;
++         break;
++      case VK_KGSL_SYNC_TYPE_FENCE:
++         if (vk_kgsl_get_sync_file(waits[i].sync)->fd >= 0)
+             ++wait_fences_count;
+-            break;
+-         case VK_KGSL_SYNC_TYPE_INVALID:
+-            assert(!"invalid sync type");
+-            break;
+-         }
++         break;
++      case VK_KGSL_SYNC_TYPE_INVALID:
++         assert(!"invalid sync type");
++         break;
+       }
+-
+-      ++wait_timeline_vals_count;
+-      assert(wait_timeline_vals_count + wait_fences_count == wait_count + 1);
+    }
+ 
+-   STACK_ARRAY(struct kgsl_timeline_val, wait_timeline_vals, wait_timeline_vals_count);
++   /* The extra slot at the end is reserved for the queue timeline. */
++   STACK_ARRAY(struct kgsl_timeline_val, wait_timeline_vals, wait_timeline_vals_count + 1);
+    {
+       uint32_t wait_timeline_vals_idx = 0;
+       for (uint32_t i = 0; i < wait_count; ++i) {
+@@ -2252,14 +2336,17 @@
+             };
+             break;
+          }
++         case VK_KGSL_SYNC_TYPE_FENCE:
++         case VK_KGSL_SYNC_TYPE_INVALID:
++            break;
+          }
+       }
+ 
+-      wait_timeline_vals[wait_timeline_vals_idx++] = (struct kgsl_timeline_val) {
++      assert(wait_timeline_vals_idx == wait_timeline_vals_count);
++      wait_timeline_vals[wait_timeline_vals_idx] = (struct kgsl_timeline_val) {
+          .seqno = previous_submit_timeline_seqno,
+          .timeline = queue->kgsl_queue_timeline_id
+       };
+-      assert(wait_timeline_vals_idx == wait_timeline_vals_count);
+    }
+ 
+    uint32_t signal_timeline_vals_count = 0;
+@@ -2304,6 +2391,9 @@
+             };
+             break;
+          }
++         case VK_KGSL_SYNC_TYPE_FENCE:
++         case VK_KGSL_SYNC_TYPE_INVALID:
++            break;
+          }
+       }
+ 
+@@ -2314,30 +2404,51 @@
+       assert(signal_timeline_vals_idx == signal_timeline_vals_count);
+    }
+ 
+-   /* It's possible to employ a fast path here when the submit has no instruction buffers
+-    * or bind commands and no wait flags are fences, using ioctls to first check if all
+-    * the wait timelines are signaled and then signal the signal timelines if that's the
+-    * case.
+-    * Main requirement for this is keeping a queue-specific internal timeline that will
+-    * make sure that any previous submit is complete. This isn't ideal but could be
+-    * manageable.
++   /* Fast path for an empty submit: if everything it waits on has already
++    * signaled, including all earlier work on this queue, there's nothing for
++    * the GPU to do and the signals can be applied right away. Any failure of
++    * the check just means we fall back to the aux command below.
+     */
++   if (!has_work && wait_fences_count == 0 &&
++       kgsl_timeline_wait_ioctl(queue->device->physical_device->local_fd, 0,
++                                wait_timeline_vals,
++                                wait_timeline_vals_count + 1,
++                                KGSL_TIMELINE_WAIT_ALL) == 0) {
++      VkResult result = VK_SUCCESS;
++      int ret = kgsl_timeline_signal_ioctl(queue->device->physical_device->local_fd,
++                                           signal_timeline_vals,
++                                           signal_timeline_vals_count);
++      int err = errno;
++      if (ret) {
++         result = vk_device_set_lost(&queue->device->vk,
++                                     "timeline signal failed: %s\n",
++                                     strerror(err));
++      } else {
++         queue->kgsl_queue_timeline_seqno = current_submit_timeline_seqno;
++      }
+ 
+-   uint32_t cmd_syncpoints_count = 0;
+-   if (wait_timeline_vals_count > 0)
++      STACK_ARRAY_FINISH(signal_timeline_vals);
++      STACK_ARRAY_FINISH(wait_timeline_vals);
++      return result;
++   }
++
++   /* Submits with commands don't wait on the queue timeline, see above. */
++   const uint32_t cmd_wait_timeline_vals_count =
++      wait_timeline_vals_count + (has_work ? 0 : 1);
++
++   uint32_t cmd_syncpoints_count = wait_fences_count;
++   if (cmd_wait_timeline_vals_count > 0)
+       cmd_syncpoints_count += 1;
+-   if (wait_fences_count > 0)
+-      cmd_syncpoints_count += wait_fences_count;
+ 
+    struct kgsl_cmd_syncpoint_timeline cmd_syncpoint_timeline;
+    STACK_ARRAY(struct kgsl_cmd_syncpoint_fence, cmd_syncpoint_fence, wait_fences_count);
+    STACK_ARRAY(struct kgsl_command_syncpoint, cmd_syncpoints, cmd_syncpoints_count);
+    {
+       uint32_t syncpoint_idx = 0;
+-      if (wait_timeline_vals_count > 0) {
++      if (cmd_wait_timeline_vals_count > 0) {
+          cmd_syncpoint_timeline = (struct kgsl_cmd_syncpoint_timeline) {
+             .timelines = (uint64_t)(uintptr_t) wait_timeline_vals,
+-            .count = wait_timeline_vals_count,
++            .count = cmd_wait_timeline_vals_count,
+             .timelines_size = sizeof(struct kgsl_timeline_val),
+          };
+          cmd_syncpoints[syncpoint_idx++] = (struct kgsl_command_syncpoint) {
+@@ -2353,6 +2464,9 @@
+             continue;
+ 
+          struct vk_kgsl_sync_file *sync_file = vk_kgsl_get_sync_file(waits[i].sync);
++         if (sync_file->fd < 0)
++            continue;
++
+          cmd_syncpoint_fence[syncpoint_fence_idx] = (struct kgsl_cmd_syncpoint_fence) {
+             .fd = sync_file->fd,
+          };
+@@ -2385,11 +2499,10 @@
+ 
+    struct kgsl_gpu_aux_command aux_cmd;
+ 
+-   if (submit->commands.size == 0 && submit->bind_cmds.size == 0) {
+-      /* Second part of the zero-command, zero-bind fast path. All wait
+-       * timelines haven't yet been signaled, but we can dispatch an aux
+-       * command that will wait on those timelines and then fire off the
+-       * the necessary timeline signals.
++   if (!has_work) {
++      /* Second part of the empty submit path. The wait timelines haven't all
++       * signaled yet, so dispatch an aux command that waits on them (and on
++       * the queue timeline) and then fires off the timeline signals.
+        */
+       aux_cmd = {
+          .flags = KGSL_GPU_AUX_COMMAND_TIMELINE | KGSL_GPU_AUX_COMMAND_SYNC,
+@@ -2410,6 +2523,7 @@
+                                      "timeline signal aux command submit failed\n");
+       } else {
+          queue->kgsl_queue_timeline_seqno = current_submit_timeline_seqno;
++         p_atomic_set(&queue->fence, aux_cmd.timestamp);
+       }
+ 
+       STACK_ARRAY_FINISH(cmd_syncpoint_fence);
+@@ -2419,9 +2533,9 @@
+       return result;
+    }
+ 
+-   int ret;
++   int ret = 0;
+    int err = 0;
+-   uint32_t timestamp;
++   uint32_t timestamp = 0;
+ 
+    /* For sanity: we're either dealing with commands or binds. In either case,
+     * the first dispatched command should wait on the specified timelines.
+@@ -2450,9 +2564,9 @@
+          .context_id = queue->msm_queue_id,
+       };
+ 
+-      if (profiling.cmd_obj) {
++      if (profiling.buffer) {
+          req.flags |= KGSL_CMDBATCH_PROFILING;
+-         req.objlist = (uintptr_t) profiling.cmd_obj;
++         req.objlist = (uintptr_t) &profiling.cmd_obj;
+          req.objsize = sizeof(struct kgsl_command_object);
+          req.numobjs = 1;
+       }
+@@ -2485,7 +2599,7 @@
+             .context_id = queue->msm_queue_id,
+          };
+ 
+-         if (i == 0) {
++         if (i == 0 && cmd_syncpoints_count > 0) {
+             aux_cmd.flags |= KGSL_GPU_AUX_COMMAND_SYNC;
+             aux_cmd.synclist = (uint64_t)(uintptr_t) cmd_syncpoints;
+             aux_cmd.syncsize = sizeof(struct kgsl_command_syncpoint);
+@@ -2747,8 +2861,11 @@
+ 
+    device->submitqueue_priority_count = 1;
+ 
+-   /* Prefer timeline-based sync implementation if supported by the kernel. */
+-   if (kgsl_timeline_create_ioctl(fd, 0, &dummy_timeline_id) == 0) {
++   /* Prefer timeline-based sync implementation if supported by the kernel.
++    * TU_KGSL_NO_TIMELINE=1 forces the syncobj implementation.
++    */
++   if (!debug_get_bool_option("TU_KGSL_NO_TIMELINE", false) &&
++       kgsl_timeline_create_ioctl(fd, 0, &dummy_timeline_id) == 0) {
+       kgsl_timeline_destroy_ioctl(fd, dummy_timeline_id);
+       device->kgsl_sync_impl_type = TU_KGSL_SYNC_IMPL_TYPE_TIMELINE;
+    } else {

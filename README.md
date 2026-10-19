@@ -1,8 +1,8 @@
-Experiment to provide better turnip drivers for the adreno 810. May or may not work. Currently sorting out bugs.
+Experiment to provide better turnip drivers for the adreno 810 and 812. May or may not work. 
 
-This is a very messy project, dont expect it to go much farther.
+This is a messy project, dont expect it to go much further. I’ll try to improve it though as best as I could.
 
-Built from: [https://github.com/WinterMist010/mesa-unified-a810](https://github.com/WinterMist010/mist-mesa-unified.git) turnip/gen8 branch.
+Built from: https://github.com/WinterMist010/mist-mesa-unified.git turnip/gen8 branch.
 
 Contact me: voided.exe_ on discord.
 
@@ -50,3 +50,4 @@ Old README:
 </details>
 
 Xclipse support wen eta?
+Sojo mex support today

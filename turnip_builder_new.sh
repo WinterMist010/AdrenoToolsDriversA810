@@ -153,6 +153,8 @@ EOF
 			-Degl=disabled \
 			-Dplatform-sdk-version=36 \
 			-Dandroid-libbacktrace=disabled \
+			-Db_lto=true \
+			-Db_lto_mode=thin \
 			--reconfigure
 
 	echo "Compiling build files ..." $'\n'

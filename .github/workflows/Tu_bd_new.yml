@@ -52,6 +52,7 @@ jobs:
           
           Adreno 830/840 have the most stable configs.
           Adreno 810/812 possibly has better configs than upstream, but may also have more bugs. Do not contact whitebelyash for support.
+          Sync builds are useful for Zink. Tested on MJLauncher.
           
           Notes:
           * Disable DXVK_HUD if you see weird black artifacts
