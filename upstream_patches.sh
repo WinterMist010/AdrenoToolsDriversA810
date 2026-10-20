@@ -34,7 +34,7 @@ run_all(){
 	# $1 - variant id (build dir / install prefix), $2 - patch subdirs to apply (space separated)
 	# $3 - output zip name (without .zip), $4 - name in meta.json
 	build_lib_for_android a810 "base" "Turnip-A81X-V$BUILD_VERSION" "Turnip-New-A810-V$BUILD_VERSION"
-	build_lib_for_android a810-sync "base sync" "Turnip-A81X-sync-V$BUILD_VERSION" "Turnip-New-A810-sync-V$BUILD_VERSION"
+	#build_lib_for_android a810-sync "base sync" "Turnip-A81X-sync-V$BUILD_VERSION" "Turnip-New-A810-sync-V$BUILD_VERSION"
 }
 
 check_deps(){
