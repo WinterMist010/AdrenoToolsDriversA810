@@ -14,6 +14,11 @@ sdkver="34"
 mesasrc="https://github.com/WinterMist010/mist-mesa-unified.git"
 srcfolder="mesa"
 
+#Patch layout, patches/sync is shared with the upstream builder:
+#  patches/sync/*.patch - extra patches for the "sync" build (same files as the upstream builder)
+#  patches/fork/*.patch - patches only for this fork builder (optional, skipped if missing)
+patchdir="$base_workdir/patches"
+
 clear
 
 #There are 4 functions here, simply comment to disable.
@@ -24,9 +29,10 @@ run_all(){
 	check_deps
 	prepare_workdir
 	# 
-	# $2 - escaped branch name (used for install prefix), $4 - output zip name (without .zip)
-	build_lib_for_android new-a810 new-a810 "" Turnip-A81X-V$BUILD_VERSION
-	build_lib_for_android new-a810 new-a810-patched apply Turnip-A81X-sync-V$BUILD_VERSION
+	# $2 - escaped branch name (used for install prefix), $3 - patch subdirs under patches/ (space separated)
+	# $4 - output zip name (without .zip)
+	build_lib_for_android new-a810 new-a810 "fork" Turnip-A81X-V$BUILD_VERSION
+	build_lib_for_android new-a810 new-a810-patched "fork sync" Turnip-A81X-sync-V$BUILD_VERSION
 	#build_lib_for_android gen8-yuck
 }
 
@@ -67,22 +73,32 @@ prepare_workdir(){
 
 apply_patch() {
 	echo "Applying patch $1"
-	if ! git apply --check $1; then
+	if ! git apply --check "$1"; then
 			echo "Failed to apply $1!"
 			exit 1
 		fi
-    	git apply $1
+    	git apply "$1"
 }
 
-# $1 - real branch, $2 - escaped branch name, $3 - "apply" to apply patches, $4 - output zip name (without .zip)
+# $1 - subdir of patches/ ("sync" is shared with the upstream builder, "fork" is only for this one)
+apply_patch_dir() {
+	local dir="$patchdir/$1"
+	for p in "$dir"/*.patch "$dir"/*.diff; do
+		[ -e "$p" ] || continue
+		apply_patch "$p"
+	done
+}
+
+# $1 - real branch, $2 - escaped branch name, $3 - patch subdirs under patches/ (space separated), $4 - output zip name (without .zip)
 build_lib_for_android(){
 	echo "==== Building Mesa on $1 branch ===="
 	git checkout --force origin/$1
-	if [[ "$3" == "apply" ]]; then
-		echo "Applying patches"
-		for patch in $base_workdir/patches/*; do
-			apply_patch $patch
-		done
+	#Patches can add files, drop leftovers from the previous build (but keep the build dir)
+	git clean -fdq -e build-android-aarch64
+	for pset in $3; do
+		apply_patch_dir "$pset"
+	done
+	if [[ " $3 " == *" sync "* ]]; then
 		meta_name="Turnip-New-A810-sync-V$BUILD_VERSION"
 	else
 		meta_name="Turnip-New-A810-V$BUILD_VERSION"
