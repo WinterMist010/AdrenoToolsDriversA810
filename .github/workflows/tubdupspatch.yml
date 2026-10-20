@@ -1,0 +1,66 @@
+name: Build "turnip upstream+patches"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  start_building_turnip:
+    runs-on: ubuntu-24.04
+    env:
+      BUILD_VERSION: ${{ inputs.version }}
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Prepare environment
+      run: |
+        sudo sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
+        sudo apt update
+        sudo apt install build-essential flex bison glslang-tools
+        sudo apt install meson-1.5 
+
+    - name: Execute build script
+      run: bash ./upstream_patches.sh
+
+    - name: Release "turnip"
+      uses: softprops/action-gh-release@v1
+      with:
+        body: |
+          **Experimental and may introduce bugs and glitches**
+          
+          A81X Turnip Vulkan V${{ inputs.version }}
+          
+          Based of upstream mesa.
+          
+          Patched mesa turnip drivers for Adreno 810/812 and the rest of the family.
+          
+          > Please don't report issues to Mesa. Report them to me @ discord: voided.exe_
+                    
+          Supported GPUs:
+          * Adreno 8XX Family: 840, 840 (8 Elite Gen 5V variant), 830, 829, 825 (not sure), 812 (untested, should work fine considering its an overclocked 810), 810
+          * Adreno 7XX Family: A710 to A750 (Yes, 710 support has reached upstream)
+          * Adreno 6XX Family: any GPU supported by the upstream Turnip
+          
+          Adreno 830/840 have the most stable configs.
+          Adreno 810/812 possibly has better configs than upstream, but may also have more bugs. Do not contact whitebelyash for support.
+          Sync-patched builds are useful for Zink. Tested on MJLauncher.
+          
+          Notes:
+          * Disable DXVK_HUD if you see weird black artifacts
+          * If there are swizzling glitches in Eden & other emulators, try increasing render scale(?)
+          * Some games may require AMD/NVIDIA GPU to run and refuse to start on Qualcomm or block some features. I've included a patch to spoof as Steam Deck - use `TU_DEBUG=deck_emu`
+          * GMEM rendering produces glitchy picture on A830 (write page faults), disable it with `TU_DEBUG=sysmem`. It's pretty much useless for PC emulation anyway.
+
+        tag_name: tu_v${{ inputs.version }}
+        name: Turnip A81X V${{ inputs.version }}
+        files: |
+           /tmp/Turnip-A81X-V${{ inputs.version }}.zip
+           /tmp/Turnip-A81X-sync-V${{ inputs.version }}.zip
