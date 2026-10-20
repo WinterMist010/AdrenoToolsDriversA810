@@ -1,6 +1,6 @@
 ===================================================================
---- freedreno_dev_info.h
-+++ freedreno_dev_info.h
+--- a/src/freedreno/common/freedreno_dev_info.h
++++ b/src/freedreno/common/freedreno_dev_info.h
 @@ -474,8 +474,14 @@
  
        /* The amount of valid draw state IDs. */
