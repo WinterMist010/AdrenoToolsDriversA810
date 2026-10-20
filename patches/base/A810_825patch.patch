@@ -1,7 +1,7 @@
 ===================================================================
 --- a/src/freedreno/common/freedreno_devices.py
 +++ b/src/freedreno/common/freedreno_devices.py
-@@ -1482,30 +1482,72 @@
+@@ -1482,30 +1482,71 @@
  
          has_salu_int_narrowing_quirk = True
  )
@@ -80,12 +80,11 @@
          wave_granularity = 2,
          fibers_per_sp = 128 * 2 * 16,
 +        highest_bank_bit = 16,
-+        magic_regs = dict(),
          raw_magic_regs = a8xx_base_raw_magic_regs,
      ))
  
  add_gpus([
-@@ -1549,9 +1591,47 @@
+@@ -1549,9 +1590,46 @@
          fibers_per_sp = 128 * 2 * 16,
          raw_magic_regs = a8xx_base_raw_magic_regs,
      ))
@@ -123,7 +122,6 @@
 +        cs_shared_mem_size = 64 * 1024,
 +        wave_granularity = 2,
 +        fibers_per_sp = 128 * 2 * 16,
-+        magic_regs = dict(),
 +        raw_magic_regs = a8xx_base_raw_magic_regs,
 +    ))
 +
