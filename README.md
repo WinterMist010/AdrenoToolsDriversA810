@@ -4,6 +4,8 @@ This is a messy project, dont expect it to go much further. I’ll try to improv
 
 Built from: https://github.com/WinterMist010/mist-mesa-unified.git turnip/gen8 branch.
 
+Patches from: myself, The412Banner & Max’s Tech Review (https://github.com/The412Banner/Banners-Turnip/tree/A8xx/patches/a8xx-winnative), Whitebelyash
+
 Contact me: voided.exe_ on discord.
 
 Disclaimer: Some code is generated with AI or written with the help of AI. Changes are always tested before major release (hence the releases labelled "vvexp".)

@@ -212,7 +212,7 @@ EOF
   "schemaVersion": 1,
   "name": "$meta_name",
   "description": "Better A810/812 support. Upstream Mesa $mesaver ($srcsha) + patches ($patchsets).",
-  "author": "whitebelyash, WinterMist010",
+  "author": "WinterMist010",
   "packageVersion": "1",
   "vendor": "Mesa",
   "driverVersion": "$vk_driver_version",
