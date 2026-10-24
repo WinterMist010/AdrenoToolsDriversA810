@@ -38,20 +38,20 @@ jobs:
           
           A81X Turnip Vulkan V${{ inputs.version }}
           
-          Based of upstream mesa.
+          Based of upstream mesa, NOT whitebelyash turnip/gen8 mesa fork!
           
           Patched mesa turnip drivers for Adreno 810/812 and the rest of the family.
           
           > Please don't report issues to Mesa. Report them to me @ discord: voided.exe_
                     
           Supported GPUs:
-          * Adreno 8XX Family: 840, 840 (8 Elite Gen 5V variant), 830, 829, 825 (not sure), 812 (untested, should work fine considering its an overclocked 810), 810
-          * Adreno 7XX Family: A710 to A750 (Yes, 710 support has reached upstream)
+          * Adreno 8XX Family: 840, 840 (8 Elite Gen 5V variant, 840V i guess), 830, 829, 825 (not sure), 812 (untested, should work fine considering its an overclocked 810), 810. Upstream configs for A840 and A840V, rest are custom.
+          * Adreno 7XX Family: A710 to A750 (Yes, 710/720 support has reached upstream)
           * Adreno 6XX Family: any GPU supported by the upstream Turnip
           
           Adreno 830/840 have the most stable configs.
           Adreno 810/812 possibly has better configs than upstream, but may also have more bugs. Do not contact whitebelyash for support.
-          Sync-patched builds are useful for Zink. Tested on MJLauncher.
+          Sync-patched builds are not yet available.
           
           Notes:
           * Disable DXVK_HUD if you see weird black artifacts
