@@ -16,7 +16,7 @@ srcdir="$workdir/$srcfolder"
 
 #What to build on: a branch (main), a tag (mesa-26.3.0) or a commit SHA.
 #Pin it for reproducible builds, e.g.: MESA_REF=<sha> BUILD_VERSION=12 ./build.sh
-MESA_REF="${MESA_REF:-4f6314dc9cb11ee105a1cb6f656b4d1cadc736e4}"
+MESA_REF="${MESA_REF:-main}"
 BUILD_VERSION="${BUILD_VERSION:-$(date +%Y%m%d)}"
 #Only informational (goes into meta.json), bump when upstream's Vulkan version moves
 vk_driver_version="Vulkan 1.4.363"

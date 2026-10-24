@@ -758,7 +758,7 @@ index ca6e287e..c0ae61a4 100644
 +   if (draw->indirect)
 +      tu6_emit_empty_vs_params<CHIP>(cmd);
 +   else
-+      tu6_emit_vs_params(cmd, 0, 0, 0);
++      tu6_emit_vs_params(cmd, NULL, 0, 0, 0);
 +
 +   tu6_draw_common<CHIP>(cmd, cs, false, 0);
 +
