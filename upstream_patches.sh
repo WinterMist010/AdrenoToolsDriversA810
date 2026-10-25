@@ -106,7 +106,7 @@ apply_patch_dir() {
 	for p in "$dir"/*.patch "$dir"/*.diff; do
 		[ -e "$p" ] || continue
 		echo "Applying $1/$(basename "$p")"
-		if head -n1 "$p" | grep -q '^From '; then
+		if head -n1 "$p" | grep -qE '^From[ :]'; then
 			#format-patch output, keeps authorship
 			git am --3way --quiet "$p" || { git am --abort; echo -e "$red Failed to apply $p! Refresh it against current Mesa. $nocolor"; exit 1; }
 		else
