@@ -1,0 +1,42 @@
+From fa4915b9d2305d5b4573d63eeb24133a5087c7e8 Mon Sep 17 00:00:00 2001
+From: Review <review@example.invalid>
+Date: Mon, 26 Oct 2026 05:36:02 +0000
+Subject: [PATCH 7/7] tu/mesh: Wait for the ME before indirect chunk draws
+
+0004 dropped the CP_WAIT_FOR_ME that followed every dispatch. The chunk draws
+of GPU-driven mesh draws are CP_DRAW_INDIRECT_MULTI, and Turnip's regular
+indirect draws wait for the ME before them (draw_wfm()) because the firmware
+can read the indirect parameters before a preceding WFI has completed. Put
+the wait back for the indirect chunk draw of the vertex-pulling path; direct
+chunk draws use CP_DRAW_INDX_OFFSET and keep the WFI-only sequence, and the
+indexed path already ends its dispatch with the CP read barrier.
+
+Source of the firmware issue: the comment of the commit that added
+VK_KHR_draw_indirect_count to Turnip (2020, a650 firmware); whether it still
+applies on the Mesa base 4da08cb and on the Adreno 810 firmware is not
+verified.
+---
+ src/freedreno/vulkan/tu_cmd_buffer.cc | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/freedreno/vulkan/tu_cmd_buffer.cc b/src/freedreno/vulkan/tu_cmd_buffer.cc
+index 5db4ace..50a9c1d 100644
+--- a/src/freedreno/vulkan/tu_cmd_buffer.cc
++++ b/src/freedreno/vulkan/tu_cmd_buffer.cc
+@@ -10450,6 +10450,13 @@ tu_mesh_emit_chunk(struct tu_cmd_buffer *cmd, struct tu_cs *cs,
+       tu_mesh_emit_cp_read_barrier<CHIP>(cmd, cs);
+    } else {
+       tu_mesh_emit_shader_barrier<CHIP>(cmd, cs);
++
++      /* CP_DRAW_INDIRECT_MULTI has been seen reading its arguments before a
++       * preceding WFI completed (Turnip's draw_wfm() works around it for the
++       * application's indirect draws), so wait for the ME explicitly.
++       */
++      if (args)
++         tu_cs_emit_pkt7(cs, CP_WAIT_FOR_ME, 0);
+    }
+ 
+    /* The compute state overwrote part of the fragment shader state. */
+-- 
+2.43.0
+

@@ -1,0 +1,245 @@
+From b3990e98f997e2b6f4b651e2f8e2e8f29b50ddf2 Mon Sep 17 00:00:00 2001
+From: Review <review@example.invalid>
+Date: Thu, 22 Oct 2026 01:22:55 +0000
+Subject: [PATCH 3/3] tu/mesh: Size chunk tables per pipeline and advertise
+ what they cover
+
+Indirect, indirect count and task draws launch their workgroups through
+chunk arguments written by the setup shader. Only TU_MESH_MAX_CHUNKS (32)
+mesh and TU_MESH_MAX_TASK_CHUNKS (4) task chunks existed, so any workgroups
+past 32 * chunk_workgroups (resp. 4 * chunk_workgroups) were dropped without
+an error, while maxMeshWorkGroupTotalCount and maxTaskWorkGroupTotalCount
+were advertised as 1 << 22.
+
+- Make the number of chunks a per-pipeline value (tu_mesh_state::num_chunks)
+  derived from the advertised totals and the record or payload size, never
+  below the old counts, and raise the table maximum to 256 / 32.
+- The setup shader ran one thread per chunk in a 128 thread workgroup, so
+  chunks 128 and up would never have been written. Loop over them.
+- Advertise 1 << 16 mesh and 1 << 14 task workgroups per launch, which every
+  shader within the advertised output limits can cover.
+- Task pipelines get all mesh chunks, since one task chunk emits many mesh
+  workgroups.
+
+This does not remove truncation for amplification beyond the table
+capacity (many task workgroups emitting many mesh workgroups, or an
+indirect count draw whose commands sum to more than the capacity); that
+needs GPU-side looping or per-task-chunk splitting. The limits are lower
+than the 1 << 22 the Vulkan spec may require as a minimum for
+VK_EXT_mesh_shader (not verified here).
+---
+ src/freedreno/vulkan/tu_cmd_buffer.cc |  8 ++++----
+ src/freedreno/vulkan/tu_device.cc     |  5 +++--
+ src/freedreno/vulkan/tu_mesh.cc       | 26 ++++++++++++++++++++++----
+ src/freedreno/vulkan/tu_mesh.h        | 27 +++++++++++++++++++++++++--
+ src/freedreno/vulkan/tu_shader.cc     | 12 +++++++++++-
+ 5 files changed, 65 insertions(+), 13 deletions(-)
+
+diff --git a/src/freedreno/vulkan/tu_cmd_buffer.cc b/src/freedreno/vulkan/tu_cmd_buffer.cc
+index f9d917e..1ce2543 100644
+--- a/src/freedreno/vulkan/tu_cmd_buffer.cc
++++ b/src/freedreno/vulkan/tu_cmd_buffer.cc
+@@ -10464,7 +10464,7 @@ tu_mesh_emit_ms_chunks(struct tu_cmd_buffer *cmd, struct tu_cs *cs,
+       return;
+    }
+ 
+-   for (uint32_t i = 0; i < TU_MESH_MAX_CHUNKS; i++) {
++   for (uint32_t i = 0; i < ms->mesh.num_chunks; i++) {
+       uint64_t args = tu_mesh_chunk_args(cmd, TU_MESH_MS_TABLE_OFFSET, i);
+       tu_mesh_begin_chunk_cond<CHIP>(cs, args, TU_PREDICATE_MESH);
+       tu_mesh_emit_chunk<CHIP>(cmd, cs, ms, i * chunk, 0, args);
+@@ -10494,7 +10494,7 @@ tu_mesh_emit_task_chunk(struct tu_cmd_buffer *cmd, struct tu_cs *cs,
+       .count_iova = args,
+       .chunk = ms->mesh.chunk_workgroups,
+       .vertices = (uint32_t) ms->mesh.max_primitives * ms->mesh.verts_per_prim,
+-      .chunks = TU_MESH_MAX_CHUNKS,
++      .chunks = ms->mesh.num_chunks,
+    };
+    tu_mesh_emit_setup<CHIP>(cmd, cs, &setup);
+    tu_mesh_emit_ms_chunks<CHIP>(cmd, cs, true, 0);
+@@ -10551,7 +10551,7 @@ tu_mesh_draw(struct tu_cmd_buffer *cmd, const struct tu_mesh_draw *draw)
+                         : ms->mesh.chunk_workgroups,
+             .vertices = ts ? 0 : (uint32_t) ms->mesh.max_primitives *
+                                  ms->mesh.verts_per_prim,
+-            .chunks = ts ? TU_MESH_MAX_TASK_CHUNKS : TU_MESH_MAX_CHUNKS,
++            .chunks = ts ? ts->mesh.num_chunks : ms->mesh.num_chunks,
+          };
+          tu_mesh_emit_setup<CHIP>(cmd, cs, &setup);
+ 
+@@ -10560,7 +10560,7 @@ tu_mesh_draw(struct tu_cmd_buffer *cmd, const struct tu_mesh_draw *draw)
+             continue;
+          }
+ 
+-         for (uint32_t i = 0; i < TU_MESH_MAX_TASK_CHUNKS; i++) {
++         for (uint32_t i = 0; i < ts->mesh.num_chunks; i++) {
+             uint64_t args = tu_mesh_chunk_args(cmd, TU_MESH_TS_TABLE_OFFSET, i);
+             tu_mesh_begin_chunk_cond<CHIP>(cs, args, TU_PREDICATE_MESH_TASK);
+             tu_mesh_emit_task_chunk<CHIP>(cmd, cs,
+diff --git a/src/freedreno/vulkan/tu_device.cc b/src/freedreno/vulkan/tu_device.cc
+index f431db8..23cf1dc 100644
+--- a/src/freedreno/vulkan/tu_device.cc
++++ b/src/freedreno/vulkan/tu_device.cc
+@@ -1469,7 +1469,8 @@ tu_subgroup_size(const struct tu_physical_device *device)
+    props->minPlacedMemoryMapAlignment = os_page_size;
+ 
+    /* VK_EXT_mesh_shader */
+-   props->maxTaskWorkGroupTotalCount = 1u << 22;
++   /* Limited by the chunks of the mesh ring, see tu_mesh.h. */
++   props->maxTaskWorkGroupTotalCount = TU_MESH_TASK_TOTAL_LIMIT;
+    props->maxTaskWorkGroupCount[0] = 65535;
+    props->maxTaskWorkGroupCount[1] = 65535;
+    props->maxTaskWorkGroupCount[2] = 65535;
+@@ -1480,7 +1481,7 @@ tu_subgroup_size(const struct tu_physical_device *device)
+    props->maxTaskPayloadSize = 16384;
+    props->maxTaskSharedMemorySize = 32768;
+    props->maxTaskPayloadAndSharedMemorySize = 32768;
+-   props->maxMeshWorkGroupTotalCount = 1u << 22;
++   props->maxMeshWorkGroupTotalCount = TU_MESH_MS_TOTAL_LIMIT;
+    props->maxMeshWorkGroupCount[0] = 65535;
+    props->maxMeshWorkGroupCount[1] = 65535;
+    props->maxMeshWorkGroupCount[2] = 65535;
+diff --git a/src/freedreno/vulkan/tu_mesh.cc b/src/freedreno/vulkan/tu_mesh.cc
+index f6770d7..889f4a1 100644
+--- a/src/freedreno/vulkan/tu_mesh.cc
++++ b/src/freedreno/vulkan/tu_mesh.cc
+@@ -726,6 +726,14 @@ tu_mesh_task_chunk(unsigned task_payload_stride)
+                TU_MESH_TABLE_MAX_ENTRIES);
+ }
+ 
++unsigned
++tu_mesh_num_chunks(unsigned chunk_workgroups, unsigned total_limit,
++                   unsigned min_chunks, unsigned max_chunks)
++{
++   return CLAMP(DIV_ROUND_UP(total_limit, MAX2(chunk_workgroups, 1u)),
++                min_chunks, max_chunks);
++}
++
+ unsigned
+ tu_mesh_lower_ts(nir_shader *ts)
+ {
+@@ -964,16 +972,23 @@ tu_mesh_build_setup_cs(const nir_shader_compiler_options *options)
+    }
+    nir_pop_if(b, NULL);
+ 
+-   nir_push_if(b, nir_ult(b, t, s.params[TU_MESH_PARAM_CHUNKS]));
++   /* The workgroup is smaller than the number of chunks of a table. */
++   nir_variable *c_var =
++      nir_local_variable_create(b->impl, glsl_uint_type(), "c");
++   nir_store_var(b, c_var, t, 0x1);
++   nir_loop *chunk_loop = nir_push_loop(b);
+    {
++      nir_def *c = nir_load_var(b, c_var);
++      nir_break_if(b, nir_uge(b, c, s.params[TU_MESH_PARAM_CHUNKS]));
++
+       nir_def *chunk = s.params[TU_MESH_PARAM_CHUNK];
+-      nir_def *base = nir_imul(b, t, chunk);
++      nir_def *base = nir_imul(b, c, chunk);
+       nir_def *left = nir_bcsel(b, nir_ult(b, base, total),
+                                 nir_isub(b, total, base), nir_imm_int(b, 0));
+       nir_def *groups = nir_umin(b, left, chunk);
+       nir_def *args =
+          addr_add(b, s.table,
+-                  nir_iadd_imm(b, nir_imul_imm(b, t, TU_MESH_ARGS_SIZE),
++                  nir_iadd_imm(b, nir_imul_imm(b, c, TU_MESH_ARGS_SIZE),
+                                TU_MESH_TABLE_ARGS));
+       nir_store_global(b, nir_vec4(b, groups, nir_imm_int(b, 1), nir_imm_int(b, 1),
+                                    nir_b2i32(b, nir_ine_imm(b, groups, 0))),
+@@ -984,8 +999,11 @@ tu_mesh_build_setup_cs(const nir_shader_compiler_options *options)
+                                    nir_imm_int(b, 0)),
+                        addr_add(b, args, nir_imm_int(b, TU_MESH_ARG_DRAW)),
+                        .align_mul = 16);
++
++      nir_store_var(b, c_var,
++                    nir_iadd_imm(b, c, TU_MESH_SETUP_WORKGROUP_SIZE), 0x1);
+    }
+-   nir_pop_if(b, NULL);
++   nir_pop_loop(b, chunk_loop);
+ 
+    NIR_PASS(_, b->shader, nir_lower_vars_to_ssa);
+    return b->shader;
+diff --git a/src/freedreno/vulkan/tu_mesh.h b/src/freedreno/vulkan/tu_mesh.h
+index 1e9fda0..01a4a4c 100644
+--- a/src/freedreno/vulkan/tu_mesh.h
++++ b/src/freedreno/vulkan/tu_mesh.h
+@@ -43,8 +43,20 @@ enum tu_mesh_source {
+ };
+ 
+ #define TU_MESH_PARAMS_OFFSET 0
+-#define TU_MESH_MAX_CHUNKS 32
+-#define TU_MESH_MAX_TASK_CHUNKS 4
++/* Upper bounds of the chunk arguments a table can hold. A pipeline uses
++ * tu_mesh_state::num_chunks of them, sized so that a table covers at least the
++ * totals below, which are what the device advertises.
++ *
++ * The totals limit the workgroups a single setup pass can launch: a draw
++ * command, or the sum of the commands of one indirect setup pass. Mesh
++ * workgroups emitted by the task workgroups of one task chunk must also fit.
++ */
++#define TU_MESH_MIN_CHUNKS 32
++#define TU_MESH_MAX_CHUNKS 256
++#define TU_MESH_MIN_TASK_CHUNKS 4
++#define TU_MESH_MAX_TASK_CHUNKS 32
++#define TU_MESH_MS_TOTAL_LIMIT (1u << 16)
++#define TU_MESH_TASK_TOTAL_LIMIT (1u << 14)
+ #define TU_MESH_TABLE_MAX_ENTRIES 16384
+ #define TU_MESH_TABLE_ENTRY_SIZE 32
+ /* Chunk arguments: dispatch size, enable flag, then a VkDrawIndirectCommand. */
+@@ -95,6 +107,10 @@ struct tu_mesh_io {
+ struct tu_mesh_state {
+    uint32_t stride;
+    uint32_t chunk_workgroups;
++   /* 32 bits to keep the struct free of padding: it is hashed and
++    * serialized as raw bytes.
++    */
++   uint32_t num_chunks;
+    uint32_t task_payload_stride;
+    uint16_t max_primitives;
+    uint8_t verts_per_prim;
+@@ -118,6 +134,13 @@ tu_mesh_lower_ts(nir_shader *ts);
+ unsigned
+ tu_mesh_task_chunk(unsigned task_payload_stride);
+ 
++/* Number of chunk arguments needed to launch total_limit workgroups, never
++ * fewer than the min_chunks the ring was sized for before this was per pipeline.
++ */
++unsigned
++tu_mesh_num_chunks(unsigned chunk_workgroups, unsigned total_limit,
++                   unsigned min_chunks, unsigned max_chunks);
++
+ void
+ tu_mesh_lower_fs_inputs(nir_shader *fs, bool remap_primitive_id);
+ 
+diff --git a/src/freedreno/vulkan/tu_shader.cc b/src/freedreno/vulkan/tu_shader.cc
+index c3b1eca..09c2106 100644
+--- a/src/freedreno/vulkan/tu_shader.cc
++++ b/src/freedreno/vulkan/tu_shader.cc
+@@ -3966,8 +3966,12 @@ tu_lower_mesh_pipeline(struct tu_device *dev, nir_shader **nir,
+    unsigned payload_stride = 0;
+    if (nir[MESA_SHADER_TASK]) {
+       payload_stride = tu_mesh_lower_ts(nir[MESA_SHADER_TASK]);
++      unsigned task_chunk = tu_mesh_task_chunk(payload_stride);
+       info[MESA_SHADER_TASK].mesh = (struct tu_mesh_state) {
+-         .chunk_workgroups = tu_mesh_task_chunk(payload_stride),
++         .chunk_workgroups = task_chunk,
++         .num_chunks = tu_mesh_num_chunks(task_chunk, TU_MESH_TASK_TOTAL_LIMIT,
++                                          TU_MESH_MIN_TASK_CHUNKS,
++                                          TU_MESH_MAX_TASK_CHUNKS),
+          .task_payload_stride = payload_stride,
+       };
+    }
+@@ -3981,6 +3985,12 @@ tu_lower_mesh_pipeline(struct tu_device *dev, nir_shader **nir,
+    info[MESA_SHADER_MESH].mesh = (struct tu_mesh_state) {
+       .stride = io.stride,
+       .chunk_workgroups = io.chunk_workgroups,
++      /* A task workgroup can emit up to the advertised total by itself, and a
++       * task chunk holds many of them, so give task pipelines every chunk.
++       */
++      .num_chunks = nir[MESA_SHADER_TASK] ? TU_MESH_MAX_CHUNKS :
++         tu_mesh_num_chunks(io.chunk_workgroups, TU_MESH_MS_TOTAL_LIMIT,
++                            TU_MESH_MIN_CHUNKS, TU_MESH_MAX_CHUNKS),
+       .task_payload_stride = payload_stride,
+       .max_primitives = (uint16_t) io.max_primitives,
+       .verts_per_prim = (uint8_t) io.verts_per_prim,
+-- 
+2.43.0
+

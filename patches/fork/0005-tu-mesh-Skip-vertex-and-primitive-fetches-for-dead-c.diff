@@ -1,0 +1,123 @@
+From 42c183ffdc347a6676a59f714146bd5705e8f8bf Mon Sep 17 00:00:00 2001
+From: Review <review@example.invalid>
+Date: Thu, 22 Oct 2026 01:23:44 +0000
+Subject: [PATCH] tu/mesh: Skip vertex and primitive fetches for dead corners
+
+The generated vertex shader runs max_primitives * verts_per_prim times per
+mesh workgroup, whatever the mesh shader's primitive count, and loaded the
+whole vertex and primitive record even for corners whose primitive is past
+the count or culled, only to overwrite the position. Branch around the
+fetches and write only the clip position for dead corners.
+
+Position is written through the same variable on both paths, so a mesh
+shader without a position output keeps the constant position.
+
+Whether this wins depends on how many corners are dead and on how well the
+branch behaves on Adreno; measure with a low-occupancy workload (meshlets
+with far fewer than max_primitives primitives) and one with none dead, and
+drop this commit if the second regresses. Not compiled or run here. Dead
+points keep an undefined point size; they are clipped by position.
+---
+ src/freedreno/vulkan/tu_mesh.cc | 79 ++++++++++++++++++---------------
+ 1 file changed, 44 insertions(+), 35 deletions(-)
+
+diff --git a/src/freedreno/vulkan/tu_mesh.cc b/src/freedreno/vulkan/tu_mesh.cc
+index 889f4a1..2ffde3b 100644
+--- a/src/freedreno/vulkan/tu_mesh.cc
++++ b/src/freedreno/vulkan/tu_mesh.cc
+@@ -254,48 +254,57 @@ tu_mesh_build_vs(const nir_shader *ms, const struct tu_mesh_io *io,
+    nir_def *index = nir_load_global(b, 1, 32, addr_add(b, rec, index_offset),
+                                     .align_mul = 4);
+    nir_def *dead = nir_ieq_imm(b, index, TU_MESH_DEAD_INDEX);
+-   index = nir_bcsel(b, dead, nir_imm_int(b, 0), index);
+ 
+-   nir_def *vertex_rec =
+-      addr_add(b, rec, nir_imul_imm(b, index, io->vertex_slots * 16));
+-   nir_def *prim_rec = addr_add(b, rec, nir_imul_imm(b, p, io->prim_slots * 16));
++   /* Dead corners (primitives past the count or culled) only need a position
++    * that gets them clipped. Don't fetch the vertex and primitive data for
++    * them.
++    */
++   nir_variable *pos_var = NULL;
++   nir_push_if(b, nir_inot(b, dead));
++   {
++      nir_def *vertex_rec =
++         addr_add(b, rec, nir_imul_imm(b, index, io->vertex_slots * 16));
++      nir_def *prim_rec =
++         addr_add(b, rec, nir_imul_imm(b, p, io->prim_slots * 16));
+ 
+-   bool writes_pos = false;
+-   nir_foreach_shader_out_variable (ms_var, ms) {
+-      if (is_indices_or_cull(ms_var))
+-         continue;
++      nir_foreach_shader_out_variable (ms_var, ms) {
++         if (is_indices_or_cull(ms_var))
++            continue;
+ 
+-      nir_variable *var = nir_variable_clone(ms_var, vs);
+-      var->type = glsl_get_array_element(ms_var->type);
+-      if (var->data.per_primitive) {
+-         var->data.per_primitive = false;
+-         var->data.interpolation = INTERP_MODE_FLAT;
+-      }
+-      if (var->data.location == VARYING_SLOT_PRIMITIVE_ID)
+-         var->data.location = TU_MESH_PRIMITIVE_ID_SLOT;
+-      nir_shader_add_variable(vs, var);
+-
+-      nir_def *base = ms_var->data.per_primitive ? prim_rec : vertex_rec;
+-      unsigned offset = var_record_offset(io, ms_var) +
+-                        (ms_var->data.per_primitive ? io->prim_offset : 0);
+-      nir_deref_instr *src =
+-         nir_build_deref_cast_with_alignment(
+-            b, addr_add(b, base, nir_imm_int(b, offset)), nir_var_mem_global,
+-            io_explicit_type(var->type, var->data.compact), 0, 16, offset % 16);
+-      nir_deref_instr *dst = nir_build_deref_var(b, var);
+-
+-      if (var->data.location == VARYING_SLOT_POS) {
+-         nir_def *pos = nir_load_deref(b, src);
+-         nir_store_deref(b, dst,
+-                         nir_bcsel(b, dead, nir_imm_vec4(b, 2.0, 2.0, 2.0, 1.0),
+-                                   pos), 0xf);
+-         writes_pos = true;
+-      } else {
++         nir_variable *var = nir_variable_clone(ms_var, vs);
++         var->type = glsl_get_array_element(ms_var->type);
++         if (var->data.per_primitive) {
++            var->data.per_primitive = false;
++            var->data.interpolation = INTERP_MODE_FLAT;
++         }
++         if (var->data.location == VARYING_SLOT_PRIMITIVE_ID)
++            var->data.location = TU_MESH_PRIMITIVE_ID_SLOT;
++         nir_shader_add_variable(vs, var);
++
++         nir_def *base = ms_var->data.per_primitive ? prim_rec : vertex_rec;
++         unsigned offset = var_record_offset(io, ms_var) +
++                           (ms_var->data.per_primitive ? io->prim_offset : 0);
++         nir_deref_instr *src =
++            nir_build_deref_cast_with_alignment(
++               b, addr_add(b, base, nir_imm_int(b, offset)), nir_var_mem_global,
++               io_explicit_type(var->type, var->data.compact), 0, 16,
++               offset % 16);
++         nir_deref_instr *dst = nir_build_deref_var(b, var);
++
++         if (var->data.location == VARYING_SLOT_POS)
++            pos_var = var;
+          copy_output(b, dst, src);
+       }
+    }
++   nir_push_else(b, NULL);
++   {
++      if (pos_var) {
++         nir_store_var(b, pos_var, nir_imm_vec4(b, 2.0, 2.0, 2.0, 1.0), 0xf);
++      }
++   }
++   nir_pop_if(b, NULL);
+ 
+-   if (!writes_pos) {
++   if (!pos_var) {
+       nir_variable *pos = nir_variable_create(vs, nir_var_shader_out,
+                                               glsl_vec4_type(), "gl_Position");
+       pos->data.location = VARYING_SLOT_POS;
+-- 
+2.43.0
+

@@ -1,0 +1,468 @@
+From 463e8fe540d2f0f494c0b72932b4706b33b7c2df Mon Sep 17 00:00:00 2001
+From: Review <review@example.invalid>
+Date: Mon, 26 Oct 2026 05:35:55 +0000
+Subject: [PATCH 6/7] tu/mesh: Experimental indexed draw for mesh shaders
+ without per-primitive outputs
+
+The generated vertex shader runs once per primitive corner, so a vertex
+shared by several primitives of a meshlet is shaded once per use. When the
+mesh shader has no per-primitive outputs (nothing can differ between the
+primitives sharing a vertex), draw the chunk with an indexed draw instead:
+the mesh shader epilogue writes (workgroup << vertex_shift) | vertex per
+corner into one contiguous 32 bit index array at the start of the record
+region, and the vertex shader runs once per distinct index if the hardware
+reuses post-transform vertices (not verified on Adreno), otherwise as often
+as before but without the index load and the divisions.
+
+- Off by default. TU_MESH_INDEXED=1 enables it; TU_MESH_INDEXED is read once
+  per process at pipeline compile time, so disable the shader cache
+  (MESA_SHADER_CACHE_DISABLE=true) when switching it. With it enabled each
+  mesh shader logs whether it got the indexed path.
+- Pipelines with per-primitive outputs (gl_PrimitiveID, gl_Layer, flat
+  per-primitive varyings, ...) keep the vertex-pulling path.
+- Dead primitives use TU_MESH_DEAD_VERTEX (0xfffffffe, never the restart
+  index); the vertex shader maps it to a clipped position.
+- The chunk dispatch is followed by the CP read barrier (clean + wait for
+  the ME), since the hardware index fetch is not known to read through UCHE.
+- Chunk arguments grow to 48 bytes: the fifth dword of
+  VkDrawIndexedIndirectCommand.
+
+Not compiled or run. Identifiers taken on trust and to be checked against the
+tree: INDEX4_SIZE_32_BIT, cmd->state.index_size, INDIRECT_OP_INDEXED and the
+9 dword CP_DRAW_INDIRECT_MULTI / 7 dword CP_DRAW_INDX_OFFSET layouts (the
+latter two match Turnip's own indexed draws as of 2020).
+---
+ src/freedreno/vulkan/tu_cmd_buffer.cc |  53 ++++++++-
+ src/freedreno/vulkan/tu_mesh.cc       | 150 ++++++++++++++++++++------
+ src/freedreno/vulkan/tu_mesh.h        |  32 +++++-
+ src/freedreno/vulkan/tu_shader.cc     |   3 +-
+ 4 files changed, 200 insertions(+), 38 deletions(-)
+
+diff --git a/src/freedreno/vulkan/tu_cmd_buffer.cc b/src/freedreno/vulkan/tu_cmd_buffer.cc
+index e2ba44e..5db4ace 100644
+--- a/src/freedreno/vulkan/tu_cmd_buffer.cc
++++ b/src/freedreno/vulkan/tu_cmd_buffer.cc
+@@ -10420,6 +10420,19 @@ tu_mesh_emit_setup(struct tu_cmd_buffer *cmd, struct tu_cs *cs,
+    tu_mesh_emit_cp_read_barrier<CHIP>(cmd, cs);
+ }
+ 
++/* The draw initiator of an indexed draw with the 32 bit indices of the mesh
++ * ring, whatever index buffer the application bound.
++ */
++static uint32_t
++tu_mesh_indexed_initiator(struct tu_cmd_buffer *cmd)
++{
++   auto saved = cmd->state.index_size;
++   cmd->state.index_size = INDEX4_SIZE_32_BIT;
++   uint32_t initiator = tu_draw_initiator(cmd, DI_SRC_SEL_DMA);
++   cmd->state.index_size = saved;
++   return initiator;
++}
++
+ /* Runs the mesh shader over one chunk of the mesh table and draws its
+  * primitives.
+  */
+@@ -10430,13 +10443,49 @@ tu_mesh_emit_chunk(struct tu_cmd_buffer *cmd, struct tu_cs *cs,
+                    uint32_t groups, uint64_t args)
+ {
+    tu_mesh_emit_dispatch<CHIP>(cmd, cs, ms, base, groups, args);
+-   tu_mesh_emit_shader_barrier<CHIP>(cmd, cs);
++   if (ms->mesh.indexed) {
++      /* Not known to go through UCHE like the loads of the vertex shader: the
++       * hardware fetches the indices of the draw.
++       */
++      tu_mesh_emit_cp_read_barrier<CHIP>(cmd, cs);
++   } else {
++      tu_mesh_emit_shader_barrier<CHIP>(cmd, cs);
++   }
+ 
+    /* The compute state overwrote part of the fragment shader state. */
+    tu_cs_emit_pkt7(cs, CP_SET_DRAW_STATE, 3);
+    tu_cs_emit_draw_state(cs, TU_DRAW_STATE_FS, cmd->state.program.fs_state);
+ 
+-   if (args) {
++   if (ms->mesh.indexed) {
++      /* The indices of the chunk are one array at the start of the record
++       * region. The record layout and the sizes are the same as for the
++       * non-indexed draw: max_primitives * verts_per_prim indices a
++       * workgroup.
++       */
++      uint64_t index_va = tu_mesh_ring(cmd, TU_MESH_RECORD_OFFSET);
++      uint32_t indices_per_group =
++         ms->mesh.max_primitives * ms->mesh.verts_per_prim;
++
++      if (args) {
++         tu_cs_emit_pkt7(cs, CP_DRAW_INDIRECT_MULTI, 9);
++         tu_cs_emit(cs, tu_mesh_indexed_initiator(cmd));
++         tu_cs_emit(cs, A6XX_CP_DRAW_INDIRECT_MULTI_1_OPCODE(INDIRECT_OP_INDEXED) |
++                        A6XX_CP_DRAW_INDIRECT_MULTI_1_DST_OFF(vs_params_offset(cmd)));
++         tu_cs_emit(cs, 1);
++         tu_cs_emit_qw(cs, index_va);
++         tu_cs_emit(cs, ms->mesh.chunk_workgroups * indices_per_group);
++         tu_cs_emit_qw(cs, args + TU_MESH_ARG_DRAW);
++         tu_cs_emit(cs, 0);
++      } else {
++         tu_cs_emit_pkt7(cs, CP_DRAW_INDX_OFFSET, 7);
++         tu_cs_emit(cs, tu_mesh_indexed_initiator(cmd));
++         tu_cs_emit(cs, 1);
++         tu_cs_emit(cs, groups * indices_per_group);
++         tu_cs_emit(cs, 0);
++         tu_cs_emit_qw(cs, index_va);
++         tu_cs_emit(cs, groups * indices_per_group);
++      }
++   } else if (args) {
+       tu_cs_emit_pkt7(cs, CP_DRAW_INDIRECT_MULTI, 6);
+       tu_cs_emit(cs, tu_draw_initiator(cmd, DI_SRC_SEL_AUTO_INDEX));
+       tu_cs_emit(cs, A6XX_CP_DRAW_INDIRECT_MULTI_1_OPCODE(INDIRECT_OP_NORMAL) |
+diff --git a/src/freedreno/vulkan/tu_mesh.cc b/src/freedreno/vulkan/tu_mesh.cc
+index 2ffde3b..82bcbdd 100644
+--- a/src/freedreno/vulkan/tu_mesh.cc
++++ b/src/freedreno/vulkan/tu_mesh.cc
+@@ -6,6 +6,8 @@
+ #include "tu_mesh.h"
+ 
+ #include "nir/nir_builder.h"
++#include "util/log.h"
++#include "util/u_debug.h"
+ #include "util/u_math.h"
+ 
+ static bool
+@@ -86,7 +88,8 @@ compact_slots(uint8_t *slot_map, unsigned max_location)
+ }
+ 
+ void
+-tu_mesh_gather_io(const nir_shader *ms, struct tu_mesh_io *io)
++tu_mesh_gather_io(const nir_shader *ms, struct tu_mesh_io *io,
++                  bool allow_indexed)
+ {
+    memset(io, 0, sizeof(*io));
+ 
+@@ -113,14 +116,45 @@ tu_mesh_gather_io(const nir_shader *ms, struct tu_mesh_io *io)
+    io->max_primitives = MAX2(ms->info.mesh.max_primitives_out, 1);
+    io->verts_per_prim = mesa_vertices_per_prim(ms->info.mesh.primitive_type);
+ 
++   /* Per-primitive data can't be found from a vertex index alone. */
++   io->indexed = allow_indexed && io->prim_slots == 0 &&
++                 !io->writes_primitive_id;
++   if (allow_indexed) {
++      mesa_logi("tu mesh: indexed draw %s",
++                io->indexed ? "on" : "off (per-primitive outputs)");
++   }
++
+    unsigned vertex_size = io->max_vertices * io->vertex_slots * 16;
+    io->prim_offset = vertex_size;
++
++   if (io->indexed) {
++      io->vertex_shift = util_logbase2_ceil(io->max_vertices);
++      io->index_bytes = io->max_primitives * io->verts_per_prim * 4;
++      io->cull_offset = io->prim_offset;
++      io->stride = io->cull_offset + align(io->max_primitives * 4, 16);
++      /* The index region is rounded up to 16 bytes, leave room for that. */
++      io->chunk_workgroups =
++         MIN2((TU_MESH_RECORD_SIZE - 16) / (io->stride + io->index_bytes),
++              65535);
++      io->record_base = TU_MESH_RECORD_OFFSET +
++         align(io->chunk_workgroups * io->index_bytes, 16);
++      return;
++   }
++
+    io->index_offset =
+       io->prim_offset + io->max_primitives * io->prim_slots * 16;
+    io->cull_offset = io->index_offset +
+       align(io->max_primitives * io->verts_per_prim * 4, 16);
+    io->stride = io->cull_offset + align(io->max_primitives * 4, 16);
+    io->chunk_workgroups = MIN2(TU_MESH_RECORD_SIZE / io->stride, 65535);
++   io->record_base = TU_MESH_RECORD_OFFSET;
++}
++
++bool
++tu_mesh_use_indexed(void)
++{
++   static const bool use = debug_get_bool_option("TU_MESH_INDEXED", false);
++   return use;
+ }
+ 
+ static nir_def *
+@@ -164,7 +198,7 @@ rewrite_deref_chain(nir_builder *b, nir_deref_instr *old,
+ /* Turns all accesses to var into global memory accesses at addr. */
+ static void
+ retarget_var(nir_function_impl *impl, nir_variable *var, nir_def *addr,
+-             const glsl_type *type, unsigned align_offset)
++             const glsl_type *type, unsigned align_mul, unsigned align_offset)
+ {
+    nir_builder b = nir_builder_create(impl);
+ 
+@@ -180,7 +214,7 @@ retarget_var(nir_function_impl *impl, nir_variable *var, nir_def *addr,
+          b.cursor = nir_before_instr(instr);
+          nir_deref_instr *cast =
+             nir_build_deref_cast_with_alignment(&b, addr, nir_var_mem_global,
+-                                                type, 0, 16, align_offset);
++                                                type, 0, align_mul, align_offset);
+          rewrite_deref_chain(&b, deref, cast);
+       }
+    }
+@@ -237,23 +271,40 @@ tu_mesh_build_vs(const nir_shader *ms, const struct tu_mesh_io *io,
+ 
+    unsigned vpp = io->verts_per_prim;
+    nir_def *vertex = nir_load_vertex_id(b);
+-   nir_def *prim = nir_udiv_imm(b, vertex, vpp);
+-   nir_def *corner = nir_isub(b, vertex, nir_imul_imm(b, prim, vpp));
+-   nir_def *wg = nir_udiv_imm(b, prim, io->max_primitives);
+-   nir_def *p = nir_isub(b, prim, nir_imul_imm(b, wg, io->max_primitives));
+-
+-   nir_def *rec =
+-      addr_add(b, load_ring(b),
+-               nir_iadd_imm(b, nir_imul_imm(b, wg, io->stride),
+-                            TU_MESH_RECORD_OFFSET));
+ 
+-   nir_def *index_offset =
+-      nir_iadd_imm(b, nir_imul_imm(b, nir_iadd(b, nir_imul_imm(b, p, vpp),
+-                                               corner), 4),
+-                   io->index_offset);
+-   nir_def *index = nir_load_global(b, 1, 32, addr_add(b, rec, index_offset),
+-                                    .align_mul = 4);
+-   nir_def *dead = nir_ieq_imm(b, index, TU_MESH_DEAD_INDEX);
++   /* The vertex to fetch within its record, the primitive within the
++    * workgroup (not for the indexed path), the record, and whether the
++    * corner is dead.
++    */
++   nir_def *index, *p = NULL, *rec, *dead;
++   if (io->indexed) {
++      /* The draw is indexed and the index of a corner is (workgroup <<
++       * vertex_shift) | vertex, see write_indices(); the vertex id is that.
++       */
++      dead = nir_ieq_imm(b, vertex, TU_MESH_DEAD_VERTEX);
++      nir_def *wg = nir_ushr_imm(b, vertex, io->vertex_shift);
++      index = nir_iand_imm(b, vertex, (1u << io->vertex_shift) - 1);
++      rec = addr_add(b, load_ring(b),
++                     nir_iadd_imm(b, nir_imul_imm(b, wg, io->stride),
++                                  io->record_base));
++   } else {
++      nir_def *prim = nir_udiv_imm(b, vertex, vpp);
++      nir_def *corner = nir_isub(b, vertex, nir_imul_imm(b, prim, vpp));
++      nir_def *wg = nir_udiv_imm(b, prim, io->max_primitives);
++      p = nir_isub(b, prim, nir_imul_imm(b, wg, io->max_primitives));
++
++      rec = addr_add(b, load_ring(b),
++                     nir_iadd_imm(b, nir_imul_imm(b, wg, io->stride),
++                                  io->record_base));
++
++      nir_def *index_offset =
++         nir_iadd_imm(b, nir_imul_imm(b, nir_iadd(b, nir_imul_imm(b, p, vpp),
++                                                  corner), 4),
++                      io->index_offset);
++      index = nir_load_global(b, 1, 32, addr_add(b, rec, index_offset),
++                              .align_mul = 4);
++      dead = nir_ieq_imm(b, index, TU_MESH_DEAD_INDEX);
++   }
+ 
+    /* Dead corners (primitives past the count or culled) only need a position
+     * that gets them clipped. Don't fetch the vertex and primitive data for
+@@ -264,8 +315,9 @@ tu_mesh_build_vs(const nir_shader *ms, const struct tu_mesh_io *io,
+    {
+       nir_def *vertex_rec =
+          addr_add(b, rec, nir_imul_imm(b, index, io->vertex_slots * 16));
+-      nir_def *prim_rec =
+-         addr_add(b, rec, nir_imul_imm(b, p, io->prim_slots * 16));
++      /* The indexed path has no per-primitive outputs. */
++      nir_def *prim_rec = p ?
++         addr_add(b, rec, nir_imul_imm(b, p, io->prim_slots * 16)) : NULL;
+ 
+       nir_foreach_shader_out_variable (ms_var, ms) {
+          if (is_indices_or_cull(ms_var))
+@@ -500,6 +552,11 @@ emit_workgroup_barrier(nir_builder *b)
+ struct ms_epilogue {
+    const struct tu_mesh_io *io;
+    nir_def *rec;
++   /* Address of the index array of this workgroup, and the workgroup number
++    * within the chunk.
++    */
++   nir_def *index_addr;
++   nir_def *wg;
+    nir_def *prim_count;
+    bool has_cull;
+ };
+@@ -531,13 +588,17 @@ write_indices(nir_builder *b, nir_def *p, void *data)
+    }
+ 
+    nir_def *addr =
+-      addr_add(b, e->rec,
+-               nir_iadd_imm(b, nir_imul_imm(b, p, io->verts_per_prim * 4),
+-                            io->index_offset));
++      addr_add(b, e->index_addr,
++               nir_imul_imm(b, p, io->verts_per_prim * 4));
+    nir_def *index = nir_load_global(b, io->verts_per_prim, 32, addr,
+                                     .align_mul = 4);
+    index = nir_umin(b, index, nir_imm_int(b, io->max_vertices - 1));
+-   index = nir_bcsel(b, live, index, nir_imm_int(b, TU_MESH_DEAD_INDEX));
++   if (io->indexed) {
++      index = nir_iadd(b, index, nir_ishl_imm(b, e->wg, io->vertex_shift));
++      index = nir_bcsel(b, live, index, nir_imm_int(b, TU_MESH_DEAD_VERTEX));
++   } else {
++      index = nir_bcsel(b, live, index, nir_imm_int(b, TU_MESH_DEAD_INDEX));
++   }
+    nir_store_global(b, index, addr,
+                     .write_mask = nir_component_mask(io->verts_per_prim),
+                     .align_mul = 4);
+@@ -652,13 +713,28 @@ tu_mesh_lower_ms(nir_shader *ms, const struct tu_mesh_io *io,
+    load_table_sysvals(b, ring, TU_MESH_MS_TABLE_OFFSET, &sysvals.table);
+    nir_def *l = sysvals.table.l;
+ 
+-   nir_def *rec =
++   nir_def *wg = nir_umod_imm(b, l, io->chunk_workgroups);
++
++   /* The indices live at the start of the record region in the indexed path,
++    * where the draw reads them as one array; otherwise in the record.
++    */
++   nir_def *index_base = io->indexed ?
+       addr_add(b, ring,
+-               nir_iadd_imm(b, nir_imul_imm(b, nir_umod_imm(b, l, io->chunk_workgroups),
+-                                            io->stride),
+-                            TU_MESH_RECORD_OFFSET));
++               nir_iadd_imm(b, nir_imul_imm(b, wg, io->index_bytes),
++                            TU_MESH_RECORD_OFFSET)) : NULL;
+ 
+-   struct ms_epilogue epilogue = { .io = io, .rec = rec };
++   nir_def *rec =
++      addr_add(b, ring,
++               nir_iadd_imm(b, nir_imul_imm(b, wg, io->stride),
++                            io->record_base));
++
++   struct ms_epilogue epilogue = {
++      .io = io,
++      .rec = rec,
++      .index_addr = index_base ? index_base :
++                    addr_add(b, rec, nir_imm_int(b, io->index_offset)),
++      .wg = wg,
++   };
+ 
+    nir_variable *indices = NULL;
+    nir_foreach_shader_out_variable (var, ms) {
+@@ -689,9 +765,14 @@ tu_mesh_lower_ms(nir_shader *ms, const struct tu_mesh_io *io,
+       nir_def *addr;
+       const glsl_type *type;
+       unsigned align_offset = 0;
++      unsigned align_mul = 16;
+ 
+       if (var == indices) {
+-         addr = addr_add(&vb, rec, nir_imm_int(&vb, io->index_offset));
++         /* Blocks of index_bytes are only 4 byte aligned in the indexed
++          * path.
++          */
++         addr = epilogue.index_addr;
++         align_mul = io->indexed ? 4 : 16;
+          type = glsl_array_type(glsl_get_array_element(var->type),
+                                 glsl_get_length(var->type),
+                                 io->verts_per_prim * 4);
+@@ -705,7 +786,7 @@ tu_mesh_lower_ms(nir_shader *ms, const struct tu_mesh_io *io,
+          align_offset = var_record_offset(io, var) % 16;
+       }
+ 
+-      retarget_var(impl, var, addr, type, align_offset);
++      retarget_var(impl, var, addr, type, align_mul, align_offset);
+    }
+ 
+    b->cursor = nir_after_impl(impl);
+@@ -1008,6 +1089,11 @@ tu_mesh_build_setup_cs(const nir_shader_compiler_options *options)
+                                    nir_imm_int(b, 0)),
+                        addr_add(b, args, nir_imm_int(b, TU_MESH_ARG_DRAW)),
+                        .align_mul = 16);
++      /* The fifth dword (firstInstance) of a VkDrawIndexedIndirectCommand. */
++      nir_store_global(b, nir_imm_int(b, 0),
++                       addr_add(b, args,
++                                nir_imm_int(b, TU_MESH_ARG_DRAW + 16)),
++                       .write_mask = 0x1, .align_mul = 16);
+ 
+       nir_store_var(b, c_var,
+                     nir_iadd_imm(b, c, TU_MESH_SETUP_WORKGROUP_SIZE), 0x1);
+diff --git a/src/freedreno/vulkan/tu_mesh.h b/src/freedreno/vulkan/tu_mesh.h
+index 01a4a4c..4204564 100644
+--- a/src/freedreno/vulkan/tu_mesh.h
++++ b/src/freedreno/vulkan/tu_mesh.h
+@@ -59,8 +59,10 @@ enum tu_mesh_source {
+ #define TU_MESH_TASK_TOTAL_LIMIT (1u << 14)
+ #define TU_MESH_TABLE_MAX_ENTRIES 16384
+ #define TU_MESH_TABLE_ENTRY_SIZE 32
+-/* Chunk arguments: dispatch size, enable flag, then a VkDrawIndirectCommand. */
+-#define TU_MESH_ARGS_SIZE 32
++/* Chunk arguments: dispatch size, enable flag, then a VkDrawIndirectCommand or
++ * a VkDrawIndexedIndirectCommand (one more dword).
++ */
++#define TU_MESH_ARGS_SIZE 48
+ #define TU_MESH_ARG_ENABLE 12
+ #define TU_MESH_ARG_DRAW 16
+ #define TU_MESH_TABLE_ARGS 64
+@@ -78,6 +80,10 @@ enum tu_mesh_source {
+ 
+ #define TU_MESH_SETUP_WORKGROUP_SIZE 128
+ #define TU_MESH_DEAD_INDEX 0xffffffffu
++/* Dead vertex of the indexed path. Not all ones, so it is never taken for the
++ * primitive restart index.
++ */
++#define TU_MESH_DEAD_VERTEX 0xfffffffeu
+ 
+ /* The fragment shader reads a mesh shader's PrimitiveId from this generic
+  * varying, since only a geometry shader may write the hardware one.
+@@ -100,6 +106,16 @@ struct tu_mesh_io {
+    unsigned stride;
+    unsigned chunk_workgroups;
+ 
++   /* Indexed path (see tu_mesh_gather_io): the indices of all workgroups of a
++    * chunk form one contiguous array at the start of the record region, each
++    * workgroup's block index_bytes long, and the records follow at
++    * record_base. An index is (workgroup << vertex_shift) | vertex.
++    */
++   bool indexed;
++   unsigned vertex_shift;
++   unsigned index_bytes;
++   unsigned record_base;
++
+    bool writes_primitive_id;
+ };
+ 
+@@ -115,10 +131,20 @@ struct tu_mesh_state {
+    uint16_t max_primitives;
+    uint8_t verts_per_prim;
+    uint8_t topology;
++   uint8_t indexed;
++   uint8_t pad[3];
+ };
+ 
++/* Experimental: draw the primitives of a mesh shader with an indexed draw
++ * (vertex shader invocations per vertex, not per corner) when it has no
++ * per-primitive outputs. Enabled with TU_MESH_INDEXED=1.
++ */
++bool
++tu_mesh_use_indexed(void);
++
+ void
+-tu_mesh_gather_io(const nir_shader *ms, struct tu_mesh_io *io);
++tu_mesh_gather_io(const nir_shader *ms, struct tu_mesh_io *io,
++                  bool allow_indexed);
+ 
+ nir_shader *
+ tu_mesh_build_vs(const nir_shader *ms, const struct tu_mesh_io *io,
+diff --git a/src/freedreno/vulkan/tu_shader.cc b/src/freedreno/vulkan/tu_shader.cc
+index 09c2106..48eb64a 100644
+--- a/src/freedreno/vulkan/tu_shader.cc
++++ b/src/freedreno/vulkan/tu_shader.cc
+@@ -3957,7 +3957,7 @@ tu_lower_mesh_pipeline(struct tu_device *dev, nir_shader **nir,
+ {
+    nir_shader *ms = nir[MESA_SHADER_MESH];
+    struct tu_mesh_io io;
+-   tu_mesh_gather_io(ms, &io);
++   tu_mesh_gather_io(ms, &io, tu_mesh_use_indexed());
+ 
+    nir[MESA_SHADER_VERTEX] =
+       tu_mesh_build_vs(ms, &io, ir3_get_compiler_options(dev->compiler));
+@@ -3995,6 +3995,7 @@ tu_lower_mesh_pipeline(struct tu_device *dev, nir_shader **nir,
+       .max_primitives = (uint16_t) io.max_primitives,
+       .verts_per_prim = (uint8_t) io.verts_per_prim,
+       .topology = (uint8_t) topology,
++      .indexed = io.indexed,
+    };
+ 
+    if (nir[MESA_SHADER_FRAGMENT])
+-- 
+2.43.0
+
