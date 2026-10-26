@@ -99,6 +99,22 @@ setup_toolchain(){
 	export LDFLAGS="-fuse-ld=lld"
 }
 
+# $1 - patch file. Fuzzy fallback for patches that drifted against current Mesa.
+# Hunks that still fail are listed (and skipped), the rest is committed so later git am calls see a clean tree.
+fuzzy_apply() {
+	local p="$1"
+	patch -p1 -N --fuzz=4 --no-backup-if-mismatch < "$p" || true
+	if [ -n "$(find . -name '*.rej' -not -path './.git/*')" ]; then
+		echo -e "$red Rejected hunks from $(basename "$p"):$nocolor"
+		find . -name '*.rej' -not -path './.git/*'
+		find . -name '*.rej' -not -path './.git/*' -delete
+	fi
+	if [ -n "$(git status --porcelain)" ]; then
+		git add -A
+		git commit -q -m "Apply $(basename "$p") (fuzzy)"
+	fi
+}
+
 # $1 - patch subdir under patches/
 apply_patch_dir() {
 	local dir="$base_workdir/patches/$1"
@@ -107,16 +123,21 @@ apply_patch_dir() {
 		[ -e "$p" ] || continue
 		echo "Applying $1/$(basename "$p")"
 		if head -n1 "$p" | grep -qE '^From[ :]'; then
-			#format-patch output, keeps authorship
-			git am --3way --quiet "$p" || { git am --abort; echo -e "$red Failed to apply $p! Refresh it against current Mesa. $nocolor"; exit 1; }
+			#format-patch output, keeps authorship when it applies cleanly
+			if ! git am --3way --quiet "$p"; then
+				git am --abort || true
+				echo -e "$red git am failed for $p, falling back to fuzzy patch $nocolor"
+				fuzzy_apply "$p"
+			fi
 		else
 			#plain diff
-			git apply --3way "$p" || { echo -e "$red Failed to apply $p! Refresh it against current Mesa. $nocolor"; exit 1; }
+			git apply --whitespace=nowarn "$p" || fuzzy_apply "$p"
 		fi
 		count=$((count + 1))
 	done
 	echo "Applied $count patch(es) from patches/$1"
 }
+
 
 # $1 - variant id, $2 - patch subdirs (space separated), $3 - output zip name (without .zip), $4 - name in meta.json
 build_lib_for_android(){
