@@ -4,7 +4,7 @@
 green='\033[0;32m'
 red='\033[0;31m'
 nocolor='\033[0m'
-deps="git meson ninja patchelf unzip curl pip flex bison zip glslang glslangValidator"
+deps="git meson ninja patchelf unzip curl pip python3 flex bison zip glslang glslangValidator"
 workdir="$(pwd)/turnip_workdir"
 base_workdir="$(pwd)"
 ndkver="android-ndk-r29"
@@ -21,9 +21,11 @@ BUILD_VERSION="${BUILD_VERSION:-$(date +%Y%m%d)}"
 #Only informational (goes into meta.json), bump when upstream's Vulkan version moves
 vk_driver_version="Vulkan 1.4.363"
 
-#Patch layout (git format-patch output or plain diffs):
+#Patch layout (git format-patch output, plain diffs, or python scripts):
 #  patches/base/*.patch  - A8XX patches, applied to every build
+#  patches/base/*.py     - python patches, run after the patches above
 #  patches/sync/*.patch  - extra patches, only applied to the "sync" build
+#  patches/sync/*.py     - extra python patches, only applied to the "sync" build
 #There are 3 steps here, simply comment to disable.
 run_all(){
 	echo "====== Begin building TU V$BUILD_VERSION! ======"
@@ -115,23 +117,42 @@ fuzzy_apply() {
 	fi
 }
 
+# $1 - python patch script. Executed from the mesa source tree.
+# Any changes the script makes are committed so later git am calls see a clean tree.
+apply_python_patch() {
+	local p="$1"
+	echo "Applying python patch $(basename "$p")"
+	if ! python3 "$p"; then
+		echo -e "$red Python patch $(basename "$p") failed! $nocolor" && exit 1
+	fi
+	if [ -n "$(git status --porcelain)" ]; then
+		git add -A
+		git commit -q -m "Apply $(basename "$p") (python)"
+	fi
+}
+
 # $1 - patch subdir under patches/
 apply_patch_dir() {
 	local dir="$base_workdir/patches/$1"
 	local count=0
-	for p in "$dir"/*.patch "$dir"/*.diff; do
+	#python patches are globbed last so they run after the regular patches in a subdir
+	for p in "$dir"/*.patch "$dir"/*.diff "$dir"/*.py; do
 		[ -e "$p" ] || continue
-		echo "Applying $1/$(basename "$p")"
-		if head -n1 "$p" | grep -qE '^From[ :]'; then
-			#format-patch output, keeps authorship when it applies cleanly
-			if ! git am --3way --quiet "$p"; then
-				git am --abort || true
-				echo -e "$red git am failed for $p, falling back to fuzzy patch $nocolor"
-				fuzzy_apply "$p"
-			fi
+		if [[ "$p" == *.py ]]; then
+			apply_python_patch "$p"
 		else
-			#plain diff
-			git apply --whitespace=nowarn "$p" || fuzzy_apply "$p"
+			echo "Applying $1/$(basename "$p")"
+			if head -n1 "$p" | grep -qE '^From[ :]'; then
+				#format-patch output, keeps authorship when it applies cleanly
+				if ! git am --3way --quiet "$p"; then
+					git am --abort || true
+					echo -e "$red git am failed for $p, falling back to fuzzy patch $nocolor"
+					fuzzy_apply "$p"
+				fi
+			else
+				#plain diff
+				git apply --whitespace=nowarn "$p" || fuzzy_apply "$p"
+			fi
 		fi
 		count=$((count + 1))
 	done
