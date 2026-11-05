@@ -76,7 +76,7 @@ ensure_meson(){
 	else
 		installed=""
 	fi
-	lowest="$(printf '%s\n%s\n' "${installed:-0.0.0}" "$MESON_MIN_VER" | sort -V | head -n1) || true"
+	lowest="$(printf '%s\n%s\n' "${installed:-0.0.0}" "$MESON_MIN_VER" | sort -V | head -n1)" || true
 	if [ "$lowest" = "$MESON_MIN_VER" ]; then
 		return 0
 	fi
@@ -100,7 +100,7 @@ ensure_meson(){
 			installed="0.0.0"
 		fi
 	fi
-	lowest="$(printf '%s\n%s\n' "$installed" "$MESON_MIN_VER" | sort -V | head -n1) || true"
+	lowest="$(printf '%s\n%s\n' "$installed" "$MESON_MIN_VER" | sort -V | head -n1)" || true
 	if [ "$lowest" = "$MESON_MIN_VER" ]; then
 		echo -e "$green - meson $installed found $nocolor"
 		return 0
