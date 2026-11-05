@@ -51,7 +51,7 @@ CHANGES_FILE="$repo_root/.github/release-notes/changes.md"
 # ---------------------------------------------------------------------------
 declare -A DESC=(
   # --- patches/base - applied to upstream Mesa by upstream_patches.sh ------
-  ["a8xx.patch"]="One \`git format-patch\` bundle that carries the whole A8XX bring-up stack (16 commits rebased onto the current Mesa base). It contains:
+  ["0000-a8xx.patch"]="One \`git format-patch\` bundle that carries the whole A8XX bring-up stack (16 commits rebased onto the current Mesa base). It contains:
 - DECK_EMU: advertise as a Steam Deck / AMD RADV VANGOGH (vendor 0x1002) so titles that refuse an unknown GPU still start - \`TU_DEBUG=deck_emu\`
 - \`disable_gmem\` GPU property and the plumbing to force system-memory rendering
 - drm-shim support for Adreno (host-side tooling)
@@ -62,19 +62,19 @@ declare -A DESC=(
 - \`vsc_unknown_0d08\` GPU property (A810 blob traces emit \`VSC_UNKNOWN_0D08=1\`)
 (whitebelyash, DVD, Karmjit Mahil / Igalia, WinterMist010)"
   ["0001-tu-Emulate-VK_EXT_mesh_shader-with-compute.patch"]="Emulate \`VK_EXT_mesh_shader\` with compute shaders - runs titles that require mesh shaders on hardware without native support (mesh series)"
-  ["0001A-tu-Mark-compute-state-stale-when-a-secondary-execute.diff"]="mesh: mark the primary's compute state stale after a secondary \`vkCmdExecuteCommands\` so the next dispatch re-emits its state (mesh series)"
-  ["0001B-tu-mesh-Size-chunk-tables-per-pipeline-and-advertise.diff"]="mesh: size the chunk tables per pipeline and advertise the resulting limits (mesh series)"
-  ["0001C-tu-mesh-Only-flush-for-the-CP-after-the-setup-dispat.diff"]="mesh: only flush for the CP after the setup dispatch instead of unconditionally (mesh series)"
-  ["0001D-tu-mesh-Skip-vertex-and-primitive-fetches-for-dead-c.diff"]="mesh: skip vertex/primitive fetches for dead clusters - avoids needless work (mesh series)"
+  ["0001A-tu-Mark-compute-state-stale-when-a-secondary-execute.patch"]="mesh: mark the primary's compute state stale after a secondary \`vkCmdExecuteCommands\` so the next dispatch re-emits its state (mesh series)"
+  ["0001B-tu-mesh-Size-chunk-tables-per-pipeline-and-advertise.patch"]="mesh: size the chunk tables per pipeline and advertise the resulting limits (mesh series)"
+  ["0001C-tu-mesh-Only-flush-for-the-CP-after-the-setup-dispat.patch"]="mesh: only flush for the CP after the setup dispatch instead of unconditionally (mesh series)"
+  ["0001D-tu-mesh-Skip-vertex-and-primitive-fetches-for-dead-c.patch"]="mesh: skip vertex/primitive fetches for dead clusters - avoids needless work (mesh series)"
   ["0002-tu-ir3-Support-a-required-subgroup-size-of-half-a-wa.patch"]="tu, ir3: support a required subgroup size of half a wave - prerequisite for mesh-shader emulation (Max's Tech Review)"
   ["0003-ir3-Sanitize-cube-map-directions-on-A8XX.patch"]="ir3: sanitize cube-map directions on A8XX - fixes cubemap sampling (Max's Tech Review)"
   ["0004-tu-Invalidate-bindless-descriptors-through-the-A8XX-.patch"]="tu: invalidate bindless descriptors through the A8XX descriptor path (Max's Tech Review)"
   ["0005-tu-kgsl-Fetch-A8XX-command-streams-through-a-virtual.patch"]="tu/kgsl: fetch A8XX command streams through a virtual BO - fixes command-stream access on KGSL (Max's Tech Review)"
   ["0006-tu-sample-shading-gate.patch"]="tu: only force per-sample interpolation for shaders that actually use sample shading - small perf win (Hugo223)"
   ["0007-u_gralloc-always-use-ubwc-detection.patch"]="u_gralloc: always use the UBWC detection path - correct tiling on A8XX (whitebelyash)"
-  ["0008-tu-mesh-Experimental-indexed-draw-for-mesh-shaders-w.diff"]="mesh: experimental indexed draw for mesh shaders with a direct index buffer (mesh series)"
-  ["0009-tu-mesh-Wait-for-the-ME-before-indirect-chunk-draws.diff"]="mesh: wait for the ME before indirect chunk draws - fixes GPU hangs (mesh series)"
-  ["51-fd810-vsc0d08.py"]="Python patch: emit \`VSC_UNKNOWN_0D08\` from the per-GPU \`vsc_unknown_0d08\` property (A810 blob traces write 1). Runs after \`a8xx.patch\` (WinterMist010)"
+  ["0008-tu-mesh-Experimental-indexed-draw-for-mesh-shaders-w.patch"]="mesh: experimental indexed draw for mesh shaders with a direct index buffer (mesh series)"
+  ["0009-tu-mesh-Wait-for-the-ME-before-indirect-chunk-draws.patch"]="mesh: wait for the ME before indirect chunk draws - fixes GPU hangs (mesh series)"
+  ["51-fd810-vsc0d08.py"]="Python patch: emit \`VSC_UNKNOWN_0D08\` from the per-GPU \`vsc_unknown_0d08\` property (A810 blob traces write 1). Runs after \`0000-a8xx.patch\` (WinterMist010)"
   ["52-a8xx-resolve-cr-cntl.py"]="Python patch: emit \`REG_A8XX_RB_RESOLVE_CR_CNTL=1\` in the context preamble, matching proprietary A8XX blob captures (initialises the color/clear resolve block) (Vauzi-17)"
   ["54-a8xx-sp-hysteresis.py"]="Python patch: initialise the Shader-Processor hysteresis thresholds. Stops SP ALU clusters power-gating between draws, cutting wake-up latency in draw-heavy workloads (Vauzi-17)"
   ["55-a8xx-sp-hysteresis-gs-hs-ds.py"]="Python patch: complete the A8XX Shader-Processor hysteresis set by initialising SP_HS/SP_DS/SP_GS_HYSTERESIS (54 only covered PS/VS/CS). Keeps tessellation/geometry ALU clusters warm, same latency win as 54 for tess/GS-heavy titles"
@@ -85,6 +85,7 @@ declare -A DESC=(
   ["60-ir3-sched-prefer-lower-live.py"]="Python patch: ir3 scheduler prefers ready instructions with a lower live-register effect when breaking ties under pressure, reducing spikes past the small A810/A812 GPR budget (\`TU_IR3_SCHED_LOWER_LIVE\`) (Vauzi-17)"
   ["61-a8xx-lrz-bidir-disable.py"]="Python patch: set GRAS_SC_BIN_CNTL.FORCE_BI_DIR_LRZ_DISABLE on A8XX sysmem and LRZ-disabled passes, matching blob-captured LRZ coherence (Vauzi-17)"
   ["62-a8xx-lrz-color-comp-mask.py"]="Python patch: emit GRAS_LRZ_COLOR_COMP_MASK with the MRT write masks on A8XX so early-Z LRZ culling stays coherent across multi-MRT / disabled-attachment draws (Vauzi-17)"
+  ["a8xx_shared_mem.py"]="Python patch: increase `\`cs_shared_mem_size\`` from 32*1024 to 64*1024 in `\`freedreno_devices.py\`` - robust global replace of whitebelyash's mesa-unified shared-mem bump, idempotent against context drift (WinterMist010)"
 
   # --- patches/sync - timeline/KGSL sync, used by the -N sync artifact -----
   ["39751_3.diff"]="tu/kgsl: timeline-based synchronisation (binary sync -> timeline). Needed by some Zink/DXVK paths; upstream Mesa MR !39751 (Mesa)"
