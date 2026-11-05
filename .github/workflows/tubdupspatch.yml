@@ -7,6 +7,10 @@ on:
         description: 'Version to build'
         required: true
         type: string
+      changes:
+        description: 'Optional release highlights (Markdown). Overrides .github/release-notes/changes.md'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -19,6 +23,10 @@ jobs:
     steps:
     - name: Checkout repo
       uses: actions/checkout@v4
+      with:
+        # full history + tags so the release notes can list commits since the
+        # previous release (see .github/scripts/generate-release-notes.sh)
+        fetch-depth: 0
 
     - name: Prepare environment
       run: |
@@ -30,35 +38,18 @@ jobs:
     - name: Execute build script
       run: bash ./upstream_patches.sh
 
+    - name: Generate release notes
+      env:
+        VARIANT: upstream
+        RELEASE_CHANGES: ${{ inputs.changes }}
+        # upstream_patches.sh builds a main and a "-sync" (patches/sync2) artifact
+        ARTIFACTS: /tmp/Turnip-A81X-V${{ inputs.version }}.zip /tmp/Turnip-A81X-sync-V${{ inputs.version }}.zip
+      run: bash .github/scripts/generate-release-notes.sh "$GITHUB_WORKSPACE/release-notes.md"
+
     - name: Release "turnip"
       uses: softprops/action-gh-release@v1
       with:
-        body: |
-          **Experimental and may introduce bugs and glitches**
-          
-          A81X Turnip Vulkan V${{ inputs.version }}
-          
-          Based of upstream mesa, NOT whitebelyash turnip/gen8 mesa fork!
-          
-          Patched mesa turnip drivers for Adreno 810/812 and the rest of the family.
-          
-          > Please don't report issues to Mesa. Report them to me @ discord: voided.exe_
-                    
-          Supported GPUs:
-          * Adreno 8XX Family: 840, 840 (8 Elite Gen 5V variant, 840V i guess), 830, 829, 825 (not sure), 812 (untested, should work fine considering its an overclocked 810), 810. Upstream configs for A840 and A840V, rest are custom.
-          * Adreno 7XX Family: A710 to A750 (Yes, 710/720 support has reached upstream)
-          * Adreno 6XX Family: any GPU supported by the upstream Turnip
-          
-          Adreno 830/840 have the most stable configs.
-          Adreno 810/812 possibly has better configs than upstream, but may also have more bugs. Do not contact whitebelyash for support.
-          Sync-patched builds are not yet available.
-          
-          Notes:
-          * Disable DXVK_HUD if you see weird black artifacts
-          * If there are swizzling glitches in Eden & other emulators, try increasing render scale(?)
-          * Some games may require AMD/NVIDIA GPU to run and refuse to start on Qualcomm or block some features. I've included a patch to spoof as Steam Deck - use `TU_DEBUG=deck_emu`
-          * GMEM rendering produces glitchy picture on A830 (write page faults), disable it with `TU_DEBUG=sysmem`. It's pretty much useless for PC emulation anyway.
-
+        body_path: release-notes.md
         tag_name: tu_v${{ inputs.version }}
         name: Turnip A81X V${{ inputs.version }}
         files: |

@@ -24,8 +24,9 @@ vk_driver_version="Vulkan 1.4.363"
 #Patch layout (git format-patch output, plain diffs, or python scripts):
 #  patches/base/*.patch  - A8XX patches, applied to every build
 #  patches/base/*.py     - python patches, run after the patches above
-#  patches/sync/*.patch  - extra patches, only applied to the "sync" build
-#  patches/sync/*.py     - extra python patches, only applied to the "sync" build
+#  patches/sync2/*.patch - extra patches, only applied to the "sync" build
+#  patches/sync2/*.py    - extra python patches, only applied to the "sync" build
+#                          (the old patches/sync folder is no longer applied)
 #There are 3 steps here, simply comment to disable.
 run_all(){
 	echo "====== Begin building TU V$BUILD_VERSION! ======"
@@ -36,7 +37,7 @@ run_all(){
 	# $1 - variant id (build dir / install prefix), $2 - patch subdirs to apply (space separated)
 	# $3 - output zip name (without .zip), $4 - name in meta.json
 	build_lib_for_android a810 "base" "Turnip-A81X-V$BUILD_VERSION" "Turnip-New-A810-V$BUILD_VERSION"
-	#build_lib_for_android a810-sync "base sync" "Turnip-A81X-sync-V$BUILD_VERSION" "Turnip-New-A810-sync-V$BUILD_VERSION"
+	build_lib_for_android a810-sync "base sync2" "Turnip-A81X-sync-V$BUILD_VERSION" "Turnip-New-A810-sync-V$BUILD_VERSION"
 }
 
 check_deps(){

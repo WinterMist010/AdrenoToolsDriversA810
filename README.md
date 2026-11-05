@@ -31,7 +31,9 @@ workarounds living directly in the branch. Two artifacts are produced:
 
 - `Turnip-A81X-V<version>.zip` — the main build.
 - `Turnip-A81X-sync-V<version>.zip` — the same branch with the timeline-sync patches from
-  `patches/sync` added on top (mainly useful for Zink).
+  `patches/sync` added on top. ⚠️ **On `-N` this is a performance regression in most titles** — the
+  timeline/KGSL sync rework is slower than the stock syncobj path on this tree, so use the plain build
+  unless you specifically need timeline sync (mainly Zink, see below).
 
 ### `-U` — upstream Mesa + patches
 
@@ -39,11 +41,34 @@ Built by `upstream_patches.sh` from **upstream Mesa** — currently the **Mesa 2
 cycle, or whatever is newest — with the patches in `patches/base` applied on top. This is the build
 to use if you want to track upstream as closely as possible.
 
+Two artifacts are produced:
+
+- `Turnip-A81X-V<version>.zip` — the main build.
+- `Turnip-A81X-sync-V<version>.zip` — the same build with the KGSL sync fixes from `patches/sync2`
+  added on top. Unlike the `-N` sync build this is a **straight performance win** rather than a
+  rework, and it is the better choice for **DXVK 2.5 and newer** (see below).
+
 ### `-M` / anything else — legacy (do not use)
 
 Any other suffix (including `-M`) comes from the **old** `turnip_builder.sh`
 (`turnip_builder_haks.sh` for the "haks" experiments) and is **out of date**. It builds the older
 `turnip/gen8` tree without the current fixes — safe to ignore.
+
+### The `-sync` artifacts — `-N` vs `-U`
+
+Both builders emit a second `.zip` with a `-sync` suffix, but they are **not the same thing** and they
+behave in opposite ways:
+
+| Artifact | Patches | Effect |
+|----------|---------|--------|
+| `-N` `Turnip-A81X-sync-*.zip` | `patches/sync` — the timeline/KGSL sync rework (Mesa MR !39751) plus fixes | ❌ **Performance regression.** Timeline sync is slower than the stock syncobj path on the `-N` tree in most titles; only use it if you specifically need timeline sync (mainly Zink). |
+| `-U` `Turnip-A81X-sync-*.zip` | `patches/sync2` — small fixes to the **existing** KGSL syncobj path | ✅ **Straight win.** Correctness/perf fixes rather than a rework, so they do not suffer from the `-N` regression and they **improve performance for DXVK 2.5 and newer**. |
+
+In short:
+
+- **`-N`:** use the plain `Turnip-A81X-V<version>.zip` — the `-sync` build is a regression here.
+- **`-U`:** the `-sync` build is the better pick, especially with **DXVK 2.5+**, because it benefits from
+  the sync fixes without the `-N` downsides.
 
 ## Supported GPUs (-U)
 
@@ -78,8 +103,18 @@ upstream, but may also have more bugs.
   `TU_DEBUG=deck_emu`.
 - GMEM rendering produces a glitchy picture on A830 (write page faults); disable it with
   `TU_DEBUG=sysmem`. It is mostly useless for PC emulation anyway.
-- `-sync` builds (timeline / KGSL sync) target Zink and can regress performance on some workloads — test both
-  artifacts.
+- Runtime knobs added by the performance patch set (defaults are the perf-friendly choice
+  unless noted):
+  - `TU_SYSMEM_RELAX_WFI=false` — restore the upstream full WFI on A8XX sysmem subpass-slice
+    waits (the default uses `CP_WAIT_FOR_ME`).
+  - `TU_DRAW_STATE_SKIP_IDENTICAL=false` — always re-emit dynamic draw state.
+  - `TU_IR3_SCHED_LOWER_LIVE=false` — restore the upstream ir3 scheduling order.
+  - `TU_LRZ_PRESERVE_FS_SIDEEFFECTS=true` — **opt-in** (off by default): keep LRZ across
+    fragment-shader depth-write/side-effect draws instead of invalidating it for the pass.
+    Can misrender when depth direction is genuinely unknown.
+- `-sync` artifacts are **not** interchangeable between build suffixes: on `-N` the sync build (timeline
+  sync) regresses performance in most titles, while on `-U` the sync build (KGSL syncobj fixes) is a win —
+  best with **DXVK 2.5 and above**. Choose per build suffix; see *Which download do I want?*.
 
 ## Building locally
 
@@ -118,16 +153,16 @@ This project stands entirely on other people's work. Thanks to:
 |---|---|
 | **Mesa / Freedreno contributors** | Turnip and the Freedreno driver itself. |
 | **whitebelyash** | The `mesa-unified` / `turnip/gen8` tree and many of the A8XX patches this is built on. |
-| **WinterMist010** *(this repo)* | The `new-a810` branch, the A810/812 bring-up work, and the builders. |
+| **WinterMist010** *(me)* | The `new-a810` branch, the A810/812 bring-up work, mesh shader emulation improvement patches, testing, and the builders. |
+| **StevenMXZ** | Sync patches for upstream. |
 | **ilhan-athn7** | The original `freedreno_turnip-CI` builder scripts this repo descends from. |
 | **bylaws** | [libadrenotools](https://github.com/bylaws/libadrenotools) — how these packages get loaded. |
 | **The412Banner** | [Banners-Turnip](https://github.com/The412Banner/Banners-Turnip) `a8xx-winnative` patches. |
 | **Max's Tech Review** | Mesh-shader emulation and the A8XX correctness patches in `patches/base`. |
 | **Hugo223** | Sample-shading gate patch. |
-| **Vauzi-17** | A710/720/722 sysmem patches, the A8XX Shader-Processor hysteresis patch, patch analyzing Adreno 810 blob. |
+| **Vauzi-17** | A710/720/722 sysmem patches, the A8XX Shader-Processor hysteresis patch (and the HS/DS/GS completion + per-GPU tuning built on it), the A8XX LRZ coherence patches (`FORCE_BI_DIR_LRZ_DISABLE`, `GRAS_LRZ_COLOR_COMP_MASK`), the sysmem WFI relaxation, dynamic draw-state de-duplication, the ir3 lower-live scheduler heuristic, and the A810 blob analysis. |
 | **Karmjit Mahil (Igalia)** | Upstream Freedreno work that these patches build on. |
 
-Some of the patches in this repository were written by this repo's maintainer as well.
 
 ## References
 
@@ -142,5 +177,5 @@ Discord: **voided.exe_**
 ## AI disclaimer
 
 Some code and documentation in this project were generated with AI, or written with the help of AI.
-Anything that ships in a major release (the builds labelled *"vvexp"*) is tested before it goes
+Anything that ships in a major release (the builds labelled *"vvexp"* or anything tagged as a pre-release (PR)) is tested before it goes
 out — but treat all of it as experimental, and please report anything that breaks.
