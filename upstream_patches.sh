@@ -19,7 +19,7 @@ srcdir="$workdir/$srcfolder"
 MESA_REF="${MESA_REF:-main}"
 BUILD_VERSION="${BUILD_VERSION:-$(date +%Y%m%d)}"
 #Only informational (goes into meta.json), bump when upstream's Vulkan version moves
-vk_driver_version="Vulkan 1.4.363"
+vk_driver_version="Vulkan 1.4.367"
 
 #Patch layout (git format-patch output, plain diffs, or python scripts):
 #  patches/base/*.patch  - A8XX patches, applied to every build
