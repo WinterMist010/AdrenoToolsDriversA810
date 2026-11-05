@@ -27,6 +27,12 @@ jobs:
         sudo apt install build-essential flex bison glslang-tools
         sudo apt install meson 
 
+    - name: Ensure meson >= 1.7.0
+      run: |
+        pip install --user --break-system-packages --upgrade "meson>=1.7.0" 2>/dev/null \
+        || pip3 install --user --break-system-packages --upgrade "meson>=1.7.0"
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+
     - name: Execute build script
       run: bash ./turnip_builder.sh
 

@@ -81,7 +81,14 @@ ensure_meson(){
 		return 0
 	fi
 	echo -e "$red - meson too old/missing (${installed:-none}), need >= $MESON_MIN_VER. Upgrading via pip... $nocolor"
-	pip install --upgrade "meson>=$MESON_MIN_VER" &> /dev/null || pip3 install --upgrade "meson>=$MESON_MIN_VER" &> /dev/null || true
+	# Try several pip variants so it works on both regular and externally-managed
+	# (PEP 668) Python environments, then make sure ~/.local/bin is on PATH.
+	pip install --user --upgrade "meson>=$MESON_MIN_VER" 2>/dev/null \
+		|| pip3 install --user --upgrade "meson>=$MESON_MIN_VER" 2>/dev/null \
+		|| pip install --break-system-packages --upgrade "meson>=$MESON_MIN_VER" 2>/dev/null \
+		|| pip3 install --break-system-packages --upgrade "meson>=$MESON_MIN_VER" 2>/dev/null \
+		|| true
+	export PATH="$HOME/.local/bin:$PATH"
 	if command -v meson >/dev/null 2>&1; then
 		installed="$(meson --version 2>/dev/null || echo 0.0.0)"
 		lowest="$(printf '%s\n%s\n' "$installed" "$MESON_MIN_VER" | sort -V | head -n1) || true"
@@ -90,6 +97,7 @@ ensure_meson(){
 			return 0
 		fi
 	fi
+	echo -e "$red - Failed to upgrade meson to >= $MESON_MIN_VER. $nocolor"
 	return 1
 }
 
