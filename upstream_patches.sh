@@ -89,13 +89,21 @@ ensure_meson(){
 		|| pip3 install --break-system-packages --upgrade "meson>=$MESON_MIN_VER" 2>/dev/null \
 		|| true
 	export PATH="$HOME/.local/bin:$PATH"
+	hash -r 2>/dev/null || true
 	if command -v meson >/dev/null 2>&1; then
 		installed="$(meson --version 2>/dev/null || echo 0.0.0)"
-		lowest="$(printf '%s\n%s\n' "$installed" "$MESON_MIN_VER" | sort -V | head -n1) || true"
-		if [ "$lowest" = "$MESON_MIN_VER" ]; then
-			echo -e "$green - meson $installed found $nocolor"
-			return 0
+	else
+		# Fallback: some installs only expose meson as a python module
+		if python3 -m meson --version >/dev/null 2>&1; then
+			installed="$(python3 -m meson --version 2>/dev/null || echo 0.0.0)"
+		else
+			installed="0.0.0"
 		fi
+	fi
+	lowest="$(printf '%s\n%s\n' "$installed" "$MESON_MIN_VER" | sort -V | head -n1) || true"
+	if [ "$lowest" = "$MESON_MIN_VER" ]; then
+		echo -e "$green - meson $installed found $nocolor"
+		return 0
 	fi
 	echo -e "$red - Failed to upgrade meson to >= $MESON_MIN_VER. $nocolor"
 	return 1
