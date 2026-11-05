@@ -5,6 +5,8 @@ green='\033[0;32m'
 red='\033[0;31m'
 nocolor='\033[0m'
 deps="git meson ninja patchelf unzip curl pip python3 flex bison zip glslang glslangValidator"
+# Upstream Mesa (main / Mesa 27 devel) needs a meson newer than many distros ship (e.g. 1.5.x).
+MESON_MIN_VER="1.7.0"
 workdir="$(pwd)/turnip_workdir"
 base_workdir="$(pwd)"
 ndkver="android-ndk-r29"
@@ -53,12 +55,42 @@ check_deps(){
 				fi;
 			done
 
+		# Make sure a meson >= MESON_MIN_VER is available, upgrading via pip if the
+		# system meson is too old (or missing). Upstream Mesa's meson setup fails
+		# outright with an old meson, so catch it here with a clear message.
+		ensure_meson || exit 1
+
 		if [ "$deps_missing" == "1" ]
 			then echo "Please install missing dependencies" && exit 1
 		fi
 
 	echo "Installing python Mako dependency (if missing) ..." $'\n'
 		pip install mako &> /dev/null
+}
+
+ensure_meson(){
+	# Return 0 if a meson >= MESON_MIN_VER is available, installing via pip if needed.
+	local installed lowest
+	if command -v meson >/dev/null 2>&1; then
+		installed="$(meson --version 2>/dev/null || echo 0.0.0)"
+	else
+		installed=""
+	fi
+	lowest="$(printf '%s\n%s\n' "${installed:-0.0.0}" "$MESON_MIN_VER" | sort -V | head -n1) || true"
+	if [ "$lowest" = "$MESON_MIN_VER" ]; then
+		return 0
+	fi
+	echo -e "$red - meson too old/missing (${installed:-none}), need >= $MESON_MIN_VER. Upgrading via pip... $nocolor"
+	pip install --upgrade "meson>=$MESON_MIN_VER" &> /dev/null || pip3 install --upgrade "meson>=$MESON_MIN_VER" &> /dev/null || true
+	if command -v meson >/dev/null 2>&1; then
+		installed="$(meson --version 2>/dev/null || echo 0.0.0)"
+		lowest="$(printf '%s\n%s\n' "$installed" "$MESON_MIN_VER" | sort -V | head -n1) || true"
+		if [ "$lowest" = "$MESON_MIN_VER" ]; then
+			echo -e "$green - meson $installed found $nocolor"
+			return 0
+		fi
+	fi
+	return 1
 }
 
 prepare_workdir(){
