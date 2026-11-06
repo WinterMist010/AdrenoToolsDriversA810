@@ -1034,15 +1034,15 @@ CCU fraction tweak.
 
 A810 (a8xx_810):
  - drop a8xx_gen1; use a7xx_base, a7xx_gen3, a8xx_base, a8xx_810
- - num_ccu 1 -> 2, highest_bank_bit = 15
- - sysmem CCU color/depth cache 64K/64K -> 32K/32K, depth fraction
+ - num_ccu 1 -> 2, HBB left at default to not cause regressions in certain workloads
+ - sysmem CCU color/depth cache 64K/64K -> 64/128K, derived from blob, depth fraction
    FULL -> THREE_QUARTER
  - gmem CCU color/depth cache 32K/48K -> 16K/32K
- - gmem VPC attr/pos/bv_pos 16384/12288/20480 -> 24576/12288/16384
+ - gmem VPC attr/pos/bv_pos 16K/12K/20K -> 48K/24K/20K, aligned with blob
  - enable_tp_ubwc_flag_hint = True
- - sysmem VPC attr/pos/bv_pos 131072/65536/32768 -> 49152/16384/20480
+ - sysmem VPC attr/pos/bv_pos 131072/65536/32768 -> 49152/16384/20480, aligned with blob
    (A810 Vulkan blob trace; old values were the Gen8 default)
- - vsc_unknown_0d08 = 1 (A810 Vulkan/GLES blob traces)
+ - vsc_unknown_0d08 = 1 (A810 Vulkan/GLES blob traces), although causes GMEM rendering to break. Disabled for now.
 
 A825:
  - drop disable_gmem = False (left at its default)
