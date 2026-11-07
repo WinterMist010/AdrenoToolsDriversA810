@@ -4,7 +4,7 @@
 green='\033[0;32m'
 red='\033[0;31m'
 nocolor='\033[0m'
-deps="git meson ninja patchelf unzip curl pip flex bison zip glslang glslangValidator"
+deps="git meson ninja patchelf unzip curl pip python3 flex bison zip glslang glslangValidator"
 workdir="$(pwd)/turnip_workdir"
 base_workdir="$(pwd)"
 magiskdir="$workdir/turnip_module"
@@ -16,7 +16,9 @@ srcfolder="mesa"
 
 #Patch layout, patches/sync is shared with the upstream builder:
 #  patches/sync/*.patch - extra patches for the "sync" build (same files as the upstream builder)
+#  patches/sync/*.py    - python patches for the "sync" build (run after the patches above)
 #  patches/fork/*.patch - patches only for this fork builder (optional, skipped if missing)
+#  patches/fork/*.py    - python patches only for this fork builder (optional, skipped if missing)
 patchdir="$base_workdir/patches"
 
 clear
@@ -80,12 +82,26 @@ apply_patch() {
     	git apply "$1"
 }
 
+# $1 - python patch script. Executed from the mesa source tree.
+apply_python_patch() {
+	local p="$1"
+	echo "Applying python patch $(basename "$p")"
+	if ! python3 "$p"; then
+		echo -e "$red Python patch $(basename "$p") failed! $nocolor" && exit 1
+	fi
+}
+
 # $1 - subdir of patches/ ("sync" is shared with the upstream builder, "fork" is only for this one)
+# python patches are globbed last so they run after the regular patches in a subdir
 apply_patch_dir() {
 	local dir="$patchdir/$1"
-	for p in "$dir"/*.patch "$dir"/*.diff; do
+	for p in "$dir"/*.patch "$dir"/*.diff "$dir"/*.py; do
 		[ -e "$p" ] || continue
-		apply_patch "$p"
+		if [[ "$p" == *.py ]]; then
+			apply_python_patch "$p"
+		else
+			apply_patch "$p"
+		fi
 	done
 }
 

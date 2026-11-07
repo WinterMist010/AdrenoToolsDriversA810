@@ -1,0 +1,37 @@
+Compute_program_stale is only set in tu_mesh_draw() on the command buffer
+that records the draw. A secondary command buffer executed inside a render
+pass appends its draw CS to the primary's, so the mesh compute programs
+overwrite the primary's bound compute pipeline at render pass end, but the
+primary never learns about it: its next vkCmdDispatch skips re-emitting the
+compute shader state and runs with the mesh/setup shader's state.
+
+tu_render_pass_state_merge() is where the primary absorbs the secondary's
+render pass state (it already merges has_mesh), so set the flag there.
+tu_dispatch() already marks COMPUTE_DESC_SETS dirty when it sees the flag.
+
+Not verified: that tu_CmdExecuteCommands() calls this merge for every
+secondary executed inside a render pass on the Mesa base 4da08cb.
+---
+ src/freedreno/vulkan/tu_cmd_buffer.cc | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/freedreno/vulkan/tu_cmd_buffer.cc b/src/freedreno/vulkan/tu_cmd_buffer.cc
+index f7ab5ab..f9d917e 100644
+--- a/src/freedreno/vulkan/tu_cmd_buffer.cc
++++ b/src/freedreno/vulkan/tu_cmd_buffer.cc
+@@ -6340,6 +6340,12 @@ tu6_emit_descriptor_sets(struct tu_cmd_buffer *cmd,
+    dst->xfb_used |= src->xfb_used;
+    dst->has_tess |= src->has_tess;
+    dst->has_mesh |= src->has_mesh;
++   /* A secondary's mesh draws run compute shaders in the draw CS that is
++    * appended to ours, so our bound compute pipeline is clobbered too. The
++    * secondary's own flag is not visible to the primary's dispatches.
++    */
++   if (src->has_mesh)
++      cmd->state.compute_program_stale = true;
+    dst->has_prim_generated_query_in_rp |= src->has_prim_generated_query_in_rp;
+    dst->has_vtx_stats_query_in_rp |= src->has_vtx_stats_query_in_rp;
+    dst->has_zpass_done_sample_count_write_in_rp |= src->has_zpass_done_sample_count_write_in_rp;
+-- 
+2.43.0
+
