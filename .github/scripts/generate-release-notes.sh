@@ -74,6 +74,7 @@ declare -A DESC=(
   ["0007-u_gralloc-always-use-ubwc-detection.patch"]="u_gralloc: always use the UBWC detection path - correct tiling on A8XX (whitebelyash)"
   ["0008-tu-mesh-Experimental-indexed-draw-for-mesh-shaders-w.patch"]="mesh: experimental indexed draw for mesh shaders with a direct index buffer (mesh series)"
   ["0009-tu-mesh-Wait-for-the-ME-before-indirect-chunk-draws.patch"]="mesh: wait for the ME before indirect chunk draws - fixes GPU hangs (mesh series)"
+  ["0010-tu-kgsl-Enable-I-O-coherency-for-host-coherent-allocat.patch"]="tu/kgsl: enable I/O coherency for host-coherent allocations - detects KGSL_MEMFLAGS_IOCOHERENT at device load and uses write-back cached, CPU-coherent buffers when supported (\`TU_KGSL_NO_IOCOHERENT=1\` disables) (WinterMist010)"
   ["51-fd810-vsc0d08.py"]="Python patch: emit \`VSC_UNKNOWN_0D08\` from the per-GPU \`vsc_unknown_0d08\` property (A810 blob traces write 1). Runs after \`0000-a8xx.patch\` (WinterMist010)"
   ["52-a8xx-resolve-cr-cntl.py"]="Python patch: emit \`REG_A8XX_RB_RESOLVE_CR_CNTL=1\` in the context preamble, matching proprietary A8XX blob captures (initialises the color/clear resolve block) (Vauzi-17)"
   ["54-a8xx-sp-hysteresis.py"]="Python patch: initialise the Shader-Processor hysteresis thresholds. Stops SP ALU clusters power-gating between draws, cutting wake-up latency in draw-heavy workloads (Vauzi-17)"
@@ -85,7 +86,9 @@ declare -A DESC=(
   ["60-ir3-sched-prefer-lower-live.py"]="Python patch: ir3 scheduler prefers ready instructions with a lower live-register effect when breaking ties under pressure, reducing spikes past the small A810/A812 GPR budget (\`TU_IR3_SCHED_LOWER_LIVE\`) (Vauzi-17)"
   ["61-a8xx-lrz-bidir-disable.py"]="Python patch: set GRAS_SC_BIN_CNTL.FORCE_BI_DIR_LRZ_DISABLE on A8XX sysmem and LRZ-disabled passes, matching blob-captured LRZ coherence (Vauzi-17)"
   ["62-a8xx-lrz-color-comp-mask.py"]="Python patch: emit GRAS_LRZ_COLOR_COMP_MASK with the MRT write masks on A8XX so early-Z LRZ culling stays coherent across multi-MRT / disabled-attachment draws (Vauzi-17)"
-  ["a8xx_shared_mem.py"]="Python patch: increase `\`cs_shared_mem_size\`` from 32*1024 to 64*1024 in `\`freedreno_devices.py\`` - robust global replace of whitebelyash's mesa-unified shared-mem bump, idempotent against context drift (WinterMist010)"
+  ["a8xx_shared_mem.py"]="Python patch: increase \`cs_shared_mem_size\` from 32*1024 to 64*1024 in \`freedreno_devices.py\` - robust global replace of whitebelyash's mesa-unified shared-mem bump, idempotent against context drift (WinterMist010)"
+  ["add_ubwc_swapchain_usage.py"]="Python patch: request UBWC-compressed swapchain buffers on Adreno - without UBWC, some upscalers/frame generators get no compressed source and the screen goes green then black (WinterMist010)"
+  ["perf-kgsl-pwr-constraint.py"]="Python patch (opt-in): pin the KGSL context to the GPU maximum power level (PWR_MAX) for bursty emulator frames. Trades battery life/thermals for peak performance - not applied by default; copy from \`patches/optional\` to \`patches/base\` to enable (Vauzi-17)"
 
   # --- patches/sync - timeline/KGSL sync, used by the -N sync artifact -----
   ["39751_3.diff"]="tu/kgsl: timeline-based synchronisation (binary sync -> timeline). Needed by some Zink/DXVK paths; upstream Mesa MR !39751 (Mesa)"
@@ -113,19 +116,36 @@ has_patches() {
 # Print "- `name`" bullets with an indented description, sorted by name across
 # all extensions so numbered series stay in order.
 list_patches() {
-  local dir="$1" f name desc
+  local dir="$1" label="$2" count="${3:-}" f name desc n=0 first=1
   while IFS= read -r f; do
     [ -e "$f" ] || continue
     case "$f" in *Zone.Identifier*) continue ;; esac
     name="$(basename "$f")"
     desc="$(describe "$name")"
-    printf -- '- `%s`\n' "$name"
+    n=$((n + 1))
+    if [ "$first" -eq 1 ]; then
+      if [ -z "$count" ]; then
+        count="$n"
+      fi
+      printf '<details>\n'
+      local plural="es"
+      [ "$count" -eq 1 ] && plural=""
+      printf '<summary>📋 %s — %s patch%s applied (click to expand)</summary>\n\n' "$label" "$count" "$plural"
+      first=0
+    fi
+    printf -- "- \`%s\`\n" "$name"
     if [ -n "$desc" ]; then
       printf '%s\n' "$desc" | sed 's/^/  /'
     fi
   done < <(ls -1 "$dir"/*.patch "$dir"/*.diff "$dir"/*.py 2>/dev/null | sort)
-}
 
+  if [ "$n" -eq 0 ]; then
+    printf '_No patches found.\n'
+    return
+  fi
+
+  printf '</details>\n'
+}
 count_patches() {
   local dir="$1" f n=0
   while IFS= read -r f; do
@@ -136,8 +156,6 @@ count_patches() {
   printf '%s' "$n"
 }
 
-# git remote ("git@github.com:o/r.git", "ssh://git@host/o/r", "https://...")
-# -> a browsable URL for commit links.
 remote_to_web() {
   local url="$1" host path
   url="${url%.git}"
@@ -164,6 +182,8 @@ case "$VARIANT" in
     SYNC_DIR_NAME="patches/sync2"
     SYNC_DIR="$repo_root/patches/sync2"
     SYNC_NOTE="Applied only to the **sync** artifact (\`Turnip-A81X-sync-V${BUILD_VERSION}.zip\`). The \`-U\` builder takes these from \`patches/sync2\`; the old \`patches/sync\` folder is used by the \`-N\` builder instead."
+    PRIMARY_LABEL="Base patches - \`patches/base\`"
+    SYNC_LABEL="Sync patches - \`patches/sync2\`"
     BRANCH_EQUIV="no"
     ZIP_NAMES="\`Turnip-A81X-V${BUILD_VERSION}.zip\`, \`Turnip-A81X-sync-V${BUILD_VERSION}.zip\`"
     ;;
@@ -180,6 +200,9 @@ case "$VARIANT" in
     SYNC_DIR_NAME="patches/sync"
     SYNC_DIR="$repo_root/patches/sync"
     SYNC_NOTE="\`-sync\` is a **separate** artifact (\`Turnip-A81X-sync-V${BUILD_VERSION}.zip\`) built from the same branch with the sync patches below added on top."
+    PRIMARY_LABEL="Fork patches - \`patches/fork\`"
+    SYNC_LABEL="Sync patches - \`patches/sync\`"
+    BRANCH_LABEL="Equivalent patches from \`patches/base\`"
     BRANCH_EQUIV="yes"
     ZIP_NAMES="\`Turnip-A81X-V${BUILD_VERSION}.zip\`, \`Turnip-A81X-sync-V${BUILD_VERSION}.zip\`"
     ;;
@@ -190,7 +213,7 @@ esac
 # ---------------------------------------------------------------------------
 PRIMARY_COUNT="$(count_patches "$PRIMARY_DIR")"
 if [ "$PRIMARY_COUNT" -gt 0 ]; then
-  PRIMARY_LIST="$(list_patches "$PRIMARY_DIR")"
+  PRIMARY_LIST="$(list_patches "$PRIMARY_DIR" "$PRIMARY_LABEL" "$PRIMARY_COUNT")"
 elif [ "$VARIANT" = "new" ]; then
   PRIMARY_LIST="_No \`patches/fork\` patches - the A8XX device configs and workarounds ship inside the \`new-a810\` branch, see **Baked into the new-a810 branch** below._"
 else
@@ -199,14 +222,15 @@ fi
 
 SYNC_COUNT="$(count_patches "$SYNC_DIR")"
 if [ "$SYNC_COUNT" -gt 0 ]; then
-  SYNC_LIST="$(list_patches "$SYNC_DIR")"
+  SYNC_LIST="$(list_patches "$SYNC_DIR" "$SYNC_LABEL" "$SYNC_COUNT")"
 else
   SYNC_LIST="_No sync patches present._"
 fi
 
+BRANCH_COUNT="$(count_patches "$repo_root/patches/base")"
 BRANCH_LIST=""
 if [ "$BRANCH_EQUIV" = "yes" ]; then
-  BRANCH_LIST="$(list_patches "$repo_root/patches/base")"
+  BRANCH_LIST="$(list_patches "$repo_root/patches/base" "Equivalent patches from patches/base" "$BRANCH_COUNT")"
 fi
 
 # Parked patches (*.off.txt) are shipped but deliberately not applied.
@@ -334,6 +358,9 @@ MARKDOWN
   printf '%s\n\n' "$CHANGES"
 
   printf '## Patches applied\n\n'
+  printf '<details>\n'
+  printf '<summary>📦 Patch sets applied to this build (click to expand)</summary>\n\n'
+
   printf '%s\n\n' "$PRIMARY_NOTE"
   printf '### %s\n\n' "$PRIMARY_TITLE"
   printf '%s\n\n' "$PRIMARY_LIST"
@@ -354,6 +381,8 @@ MARKDOWN
     printf '%s' "$DISABLED_LIST"
     printf '\n'
   fi
+
+  printf '</details>\n\n'
 
   printf '## Changelog\n\n'
   printf '### %s\n\n' "$CHANGELOG_HEADING"
