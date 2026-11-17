@@ -1143,13 +1143,6 @@ diff --git a/src/freedreno/common/freedreno_devices.py b/src/freedreno/common/fr
          num_slices = 1,
          tile_align_w = 64,
          tile_align_h = 32,
-@@ -1523,6 +1545,6 @@
-         cs_shared_mem_size = 32 * 1024,
-         wave_granularity = 2,
-         fibers_per_sp = 128 * 2 * 16,
-         raw_magic_regs = a8xx_base_raw_magic_regs,
-     ))
- 
 @@ -1546,7 +1569,6 @@
              gmem_vpc_pos_buf_size = 24576,
              gmem_vpc_bv_pos_buf_size = 32768,
