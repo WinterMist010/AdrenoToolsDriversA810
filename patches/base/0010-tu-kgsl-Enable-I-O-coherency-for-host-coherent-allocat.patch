@@ -1,0 +1,165 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: WinterMist010 <wintermist010@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 10:46:00 +0700
+Subject: [PATCH] tu/kgsl: Enable I/O coherency for host-coherent allocations
+
+Detect KGSL_MEMFLAGS_IOCOHERENT support at physical device load time by
+allocating and freeing a small probe BO and checking the flags the kernel
+reports back. TU_KGSL_NO_IOCOHERENT=1 disables the feature.
+
+When supported, advertise cached-coherent memory and allocate
+HOST_VISIBLE | HOST_COHERENT | HOST_CACHED buffers with
+KGSL_MEMFLAGS_IOCOHERENT and write-back caching. If such an allocation
+fails, retry with the original flags. Track I/O coherency per BO so
+imported dma-bufs and non-coherent allocations still run
+IOCTL_KGSL_GPUOBJ_SYNC on cache flush/invalidate.
+---
+ src/freedreno/vulkan/tu_knl.h       | 3
+ src/freedreno/vulkan/tu_knl_kgsl.cc | 64
+ 2 files changed, 63 insertions(+), 4 deletions(-)
+
+diff --git a/src/freedreno/vulkan/tu_knl.h b/src/freedreno/vulkan/tu_knl.h
+--- a/src/freedreno/vulkan/tu_knl.h
++++ b/src/freedreno/vulkan/tu_knl.h
+@@ -60,6 +60,9 @@
+ 
+    /* Virtual BO the GPU accesses this BO through, or 0 if none. */
+    uint32_t alias_handle;
++
++   /* BO is mapped I/O coherent: CPU cache maintenance is not needed. */
++   bool iocoherent;
+ #endif
+ 
+    bool implicit_sync : 1;
+diff --git a/src/freedreno/vulkan/tu_knl_kgsl.cc b/src/freedreno/vulkan/tu_knl_kgsl.cc
+--- a/src/freedreno/vulkan/tu_knl_kgsl.cc
++++ b/src/freedreno/vulkan/tu_knl_kgsl.cc
+@@ -22,6 +22,10 @@
+ #include "tu_dynamic_rendering.h"
+ #include "tu_image.h"
+ 
++#ifndef KGSL_MEMFLAGS_IOCOHERENT
++#define KGSL_MEMFLAGS_IOCOHERENT 0x80000000ULL
++#endif
++
+ struct tu_kgsl_syncobj {
+    struct vk_sync base;
+ 
+@@ -403,14 +407,34 @@
+    if (flags & TU_BO_ALLOC_GPU_READ_ONLY)
+       req.flags |= KGSL_MEMFLAGS_GPUREADONLY;
+ 
+-   if (mem_property & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) {
++   const uint64_t base_flags = req.flags;
++   const VkMemoryPropertyFlags iocoherent_props =
++      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
++      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
++      VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
++   bool use_iocoherent =
++      dev->physical_device->has_cached_coherent &&
++      (mem_property & iocoherent_props) == iocoherent_props;
++
++   if (use_iocoherent) {
++      req.flags |= KGSL_MEMFLAGS_IOCOHERENT |
++                   (KGSL_CACHEMODE_WRITEBACK << KGSL_CACHEMODE_SHIFT);
++   } else if (mem_property & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) {
+       if (!(mem_property & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+          req.flags |= KGSL_CACHEMODE_WRITEBACK << KGSL_CACHEMODE_SHIFT;
+       }
+    }
+ 
+-   if (safe_ioctl(dev->physical_device->local_fd,
+-                  IOCTL_KGSL_GPUOBJ_ALLOC, &req)) {
++   int ret = safe_ioctl(dev->physical_device->local_fd,
++                        IOCTL_KGSL_GPUOBJ_ALLOC, &req);
++   if (ret && use_iocoherent) {
++      /* Retry exactly as before the I/O coherent flags were added. */
++      use_iocoherent = false;
++      req.flags = base_flags;
++      ret = safe_ioctl(dev->physical_device->local_fd,
++                       IOCTL_KGSL_GPUOBJ_ALLOC, &req);
++   }
++   if (ret) {
+       return vk_errorf(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY,
+                        "GPUOBJ_ALLOC failed (%s)", strerror(errno));
+    }
+@@ -433,6 +457,7 @@
+    bo->gem_handle = req.id;
+    bo->size = req.size;
+    bo->iova = info.gpuaddr;
+    bo->name = tu_debug_bos_add(dev, bo->size, name);
+    bo->refcnt = 1;
++   bo->iocoherent = use_iocoherent;
+    bo->shared_fd = -1;
+@@ -528,6 +553,7 @@
+    bo->gem_handle = req.id;
+    bo->size = info.size;
+    bo->iova = info.gpuaddr;
+    bo->name = tu_debug_bos_add(dev, bo->size, "dmabuf");
+    bo->refcnt = 1;
++   bo->iocoherent = false;
+    bo->shared_fd = os_dupfd_cloexec(fd);
+@@ -572,13 +598,16 @@
+ static VkResult
+ kgsl_bo_sync_cache(struct tu_device *dev,
+                    struct tu_bo *bo,
+                    uint64_t offset,
+                    uint64_t size,
+                    uint32_t op)
+ {
++   if (bo->iocoherent)
++      return VK_SUCCESS;
++
+    struct kgsl_gpuobj_sync_obj sync_obj = {
+       .offset = offset,
+       .length = size,
+       .id = bo->gem_handle,
+       .op = op,
+    };
+@@ -1622,9 +1651,36 @@
+ static int
+ kgsl_get_device_info(int fd, struct kgsl_devinfo *info)
+ {
+    return kgsl_get_prop(fd, KGSL_PROP_DEVICE_INFO, info, sizeof(*info));
+ }
+ 
++/* Probe by allocating a small BO with KGSL_MEMFLAGS_IOCOHERENT. Kernels
++ * without support drop the flag; GPUOBJ_ALLOC reports the final flags back.
++ */
++static bool
++kgsl_has_iocoherent(int fd)
++{
++   if (debug_get_bool_option("TU_KGSL_NO_IOCOHERENT", false))
++      return false;
++
++   struct kgsl_gpuobj_alloc alloc = {
++      .size = 4096,
++      .flags = KGSL_MEMFLAGS_IOCOHERENT |
++               (KGSL_CACHEMODE_WRITEBACK << KGSL_CACHEMODE_SHIFT),
++   };
++   if (safe_ioctl(fd, IOCTL_KGSL_GPUOBJ_ALLOC, &alloc))
++      return false;
++
++   bool supported = (alloc.flags & KGSL_MEMFLAGS_IOCOHERENT) != 0;
++
++   struct kgsl_gpumem_free_id free_req = {
++      .id = alloc.id,
++   };
++   safe_ioctl(fd, IOCTL_KGSL_GPUMEM_FREE_ID, &free_req);
++
++   return supported;
++}
++
+ VkResult
+ tu_knl_kgsl_load(struct tu_instance *instance, int fd)
+ {
+@@ -1711,6 +1767,6 @@
+    device->submitqueue_priority_count = 1;
+ 
+-   device->has_cached_coherent = false;
++   device->has_cached_coherent = kgsl_has_iocoherent(fd);
+ 
+    /* Even though kernel is AMDGPU, the GPU is Adreno */
+    device->physical_device_type = VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+-- 
+2.43.0
