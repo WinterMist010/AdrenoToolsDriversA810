@@ -1,0 +1,104 @@
+From: AdrenoToolsDriversA810
+Subject: [PATCH] tu: emit RB_CCU_CNTL on A8XX too (concurrent resolve, gmem fast clear)
+
+On A7XX, RB_CCU_CNTL is emitted once at context init with concurrent
+resolve/unresolve modes and gmem_fast_clear_disable.  The same register
+exists on A8XX (a6xx.xml:2861, variants "A7XX-") with identical bitfields,
+but Turnip never programmed it there, leaving concurrent resolve disabled
+and props.has_gmem_fast_clear ignored on Adreno 810/812.
+
+Extend the emission to CHIP >= A7XX and pass CHIP (not the hard-coded A7XX)
+so the packed register macro uses the right variant.  Opt out with
+TU_DEBUG=noconcurrentresolves (already read inside the block).
+
+Signed-off-by: AdrenoToolsDriversA810
+---
+src/freedreno/vulkan/tu_cmd_buffer.cc | 8 ++++----
+1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/freedreno/vulkan/tu_cmd_buffer.cc b/src/freedreno/vulkan/tu_cmd_buffer.cc
+index f691af1d933..ceda0ddaa8c 100644
+--- a/src/freedreno/vulkan/tu_cmd_buffer.cc
++++ b/src/freedreno/vulkan/tu_cmd_buffer.cc
+@@ -2180,77 +2180,77 @@ tu6_emit_tile_store_cs(struct tu_cmd_buffer *cmd, struct tu_cs *cs)
+    struct tu_resolve_group resolve_group = {};
+
+    tu6_emit_gmem_stores<CHIP>(cmd, cs, &resolve_group, subpass);
+
+    tu_emit_resolve_group<CHIP>(cmd, cs, &resolve_group);
+
+    if (pass->has_fdm)
+       tu_cs_set_writeable(cs, false);
+
+ }
+
+ void
+ tu_disable_draw_states(struct tu_cmd_buffer *cmd, struct tu_cs *cs)
+ {
+    tu_cs_emit_pkt7(cs, CP_SET_DRAW_STATE, 3);
+    tu_cs_emit(cs, CP_SET_DRAW_STATE__0_COUNT(0) |
+                      CP_SET_DRAW_STATE__0_DISABLE_ALL_GROUPS |
+                      CP_SET_DRAW_STATE__0_GROUP_ID(0));
+    tu_cs_emit(cs, CP_SET_DRAW_STATE__1_ADDR_LO(0));
+    tu_cs_emit(cs, CP_SET_DRAW_STATE__2_ADDR_HI(0));
+
+    cmd->state.dirty |= TU_CMD_DIRTY_DRAW_STATE;
+ }
+
+ template <chip CHIP>
+ static void
+ tu6_init_static_regs(struct tu_device *dev, struct tu_cs *cs)
+ {
+    const struct tu_physical_device *phys_dev = dev->physical_device;
+
+-   if (CHIP == A7XX) {
++   if (CHIP >= A7XX) {
+       /* On A7XX, RB_CCU_CNTL was broken into two registers, RB_CCU_CNTL which has
+        * static properties that can be set once, this requires a WFI to take effect.
+        * While the newly introduced register RB_CCU_CACHE_CNTL has properties that may
+        * change per-RP and don't require a WFI to take effect, only CCU inval/flush
+        * events are required.
+        */
+
+       enum a7xx_concurrent_resolve_mode resolve_mode = CONCURRENT_RESOLVE_MODE_2;
+       if (TU_DEBUG(NO_CONCURRENT_RESOLVES))
+          resolve_mode = CONCURRENT_RESOLVE_MODE_DISABLED;
+
+       enum a7xx_concurrent_unresolve_mode unresolve_mode = CONCURRENT_UNRESOLVE_MODE_FULL;
+       if (TU_DEBUG(NO_CONCURRENT_UNRESOLVES))
+          unresolve_mode = CONCURRENT_UNRESOLVE_MODE_DISABLED;
+
+-      tu_cs_emit_regs(cs, RB_CCU_CNTL(A7XX,
++      tu_cs_emit_regs(cs, RB_CCU_CNTL(CHIP,
+          .gmem_fast_clear_disable =
+            !dev->physical_device->info->props.has_gmem_fast_clear,
+          .concurrent_resolve_mode = resolve_mode,
+          .concurrent_unresolve_mode = unresolve_mode,
+       ));
+    }
+
+    for (size_t i = 0; i < ARRAY_SIZE(phys_dev->info->magic_raw); i++) {
+       auto magic_reg = phys_dev->info->magic_raw[i];
+       if (!magic_reg.reg)
+          break;
+
+       uint32_t value = magic_reg.value;
+       switch(magic_reg.reg) {
+          case REG_A6XX_TPL1_DBG_ECO_CNTL:
+             value = (value & ~A6XX_TPL1_DBG_ECO_CNTL_LINEAR_MIPMAP_FALLBACK_IN_BLOCKS) |
+                     (phys_dev->info->props.supports_linear_mipmap_threshold_in_blocks
+                         ? A6XX_TPL1_DBG_ECO_CNTL_LINEAR_MIPMAP_FALLBACK_IN_BLOCKS
+                         : 0);
+             break;
+          case REG_A6XX_TPL1_DBG_ECO_CNTL1:
+             value = (value & ~A6XX_TPL1_DBG_ECO_CNTL1_TP_UBWC_FLAG_HINT) |
+                     (phys_dev->info->props.enable_tp_ubwc_flag_hint
+                         ? A6XX_TPL1_DBG_ECO_CNTL1_TP_UBWC_FLAG_HINT
+                         : 0);
+             break;
+          case REG_A6XX_SP_CHICKEN_BITS:
+             value = (value & ~A6XX_SP_CHICKEN_BITS_EOLM_ENABLE) |
+                     (phys_dev->info->props.has_eolm_eogm
+                         ? A6XX_SP_CHICKEN_BITS_EOLM_ENABLE
+                         : 0);
+             break;
