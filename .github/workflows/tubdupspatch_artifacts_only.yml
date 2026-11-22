@@ -1,4 +1,4 @@
-name: Build "turnip upstream+patches" (artifacts only)
+name: Build "turnip upstream+patches (artifacts)"
 
 on:
   workflow_dispatch:
