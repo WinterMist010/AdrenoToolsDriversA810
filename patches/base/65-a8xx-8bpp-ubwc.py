@@ -19,29 +19,64 @@ be confirmed on hardware before it becomes a default:
 Escape hatches once applied: TU_DEBUG=noubwc, or
 FD_DEV_FEATURES=has_8bpp_ubwc=0 (the env wins over the built-in value).
 
-Runs from the Mesa source root, after 64-a810-vpc-buffer-sizes.py if both
-are used (the builder applies .py scripts in name order). Idempotent;
-warns and skips on anchor drift.
+Runs from the Mesa source root, after 0000-a8xx.patch (which moves the A810
+props into the shared a8xx_810 GPUProps set). Also handles the pre-0000
+layout (inline GPUProps in the A810 add_gpus entry). Idempotent; warns and
+skips on anchor drift.
 """
+import re
 import sys
 
 NAME = "65-a8xx-8bpp-ubwc.py"
 MARKER = "65-a8xx-8bpp-ubwc"
 TARGET = "src/freedreno/common/freedreno_devices.py"
 
-OLD = (
+# Post-0000 layout: shared a8xx_810 GPUProps set.
+BLOCK_START = "a8xx_810 = GPUProps("
+BLOCK_END = "\n)\n"
+FS_PREFETCH = re.compile(r"^([ \t]*)has_fs_tex_prefetch = False,[^\n]*\n", re.M)
+
+# Pre-0000 layout: inline GPUProps in the A810 entry.
+LEGACY_OLD = (
     "            # This is possibly also needed for a830 (and all of a8xx),\n"
     "            # move to a8xx_base if confirmed needed for a830.\n"
     "            has_fs_tex_prefetch = False,\n"
 )
-NEW = (
-    "            # This is possibly also needed for a830 (and all of a8xx),\n"
-    "            # move to a8xx_base if confirmed needed for a830.\n"
-    "            has_fs_tex_prefetch = False,\n"
-    "            # 65-a8xx-8bpp-ubwc.py: single-channel 8-bit formats get\n"
+LEGACY_NEW = (
+    LEGACY_OLD
+    + "            # 65-a8xx-8bpp-ubwc.py: single-channel 8-bit formats get\n"
     "            # UBWC on A810. TU_DEBUG=noubwc disables at runtime.\n"
     "            has_8bpp_ubwc = True,\n"
 )
+
+
+def patch_a8xx_810(content):
+    if content.count(BLOCK_START) != 1:
+        return None, f"{BLOCK_START!r} matched {content.count(BLOCK_START)}x (want 1)"
+    start = content.index(BLOCK_START)
+    end = content.find(BLOCK_END, start)
+    if end < 0:
+        return None, "a8xx_810 block terminator not found"
+    end += 1
+    block = content[start:end]
+    hits = list(FS_PREFETCH.finditer(block))
+    if len(hits) != 1:
+        return None, f"has_fs_tex_prefetch matched {len(hits)}x in a8xx_810 (want 1)"
+    m = hits[0]
+    line = (
+        f"{m.group(1)}has_8bpp_ubwc = True,"
+        f"                 # {MARKER}.py: R8-class UBWC on A810; "
+        "TU_DEBUG=noubwc disables at runtime\n"
+    )
+    block = block[: m.end()] + line + block[m.end():]
+    return content[:start] + block + content[end:], None
+
+
+def patch_legacy(content):
+    found = content.count(LEGACY_OLD)
+    if found != 1:
+        return None, f"legacy fs_tex_prefetch anchor matched {found}x (want 1)"
+    return content.replace(LEGACY_OLD, LEGACY_NEW, 1), None
 
 
 def main():
@@ -55,17 +90,17 @@ def main():
         print(f"{NAME}: already applied ({MARKER} present)")
         return 0
 
-    found = content.count(OLD)
-    if found != 1:
-        print(f"{NAME}: WARNING A810 fs_tex_prefetch anchor matched {found}x (want 1) "
-              f"in {TARGET}; skipped (a8xx bundle rework present?)")
-        return 0
-
-    content = content.replace(OLD, NEW, 1)
+    new, err = patch_a8xx_810(content)
+    if new is None:
+        new, err_legacy = patch_legacy(content)
+        if new is None:
+            print(f"{NAME}: WARNING a8xx_810: {err}; legacy: {err_legacy}; "
+                  f"skipped in {TARGET} (a8xx bundle rework present?)")
+            return 0
 
     try:
         with open(TARGET, "w", encoding="utf-8", newline="\n") as f:
-            f.write(content)
+            f.write(new)
     except OSError as e:
         print(f"{NAME}: ERROR cannot write {TARGET}: {e}", file=sys.stderr)
         return 1
