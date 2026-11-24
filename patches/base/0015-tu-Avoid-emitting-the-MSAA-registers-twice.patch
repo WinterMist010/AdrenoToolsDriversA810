@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: WinterMist010 <85207868+WinterMist010@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:00:00 +0700
+Subject: [PATCH] tu: avoid emitting the MSAA registers twice for the same draw
+
+tu6_update_msaa_disable() already calls tu6_update_msaa() when the
+line-mode disable state changes, and the caller then emitted the
+same six MSAA registers again whenever MS_RASTERIZATION_SAMPLES or
+the draw state was dirty.  Return whether the registers were emitted
+and skip the second emission.
+
+Cheap fix for a per-draw pair of redundant register packets; from
+the A8XX codepath audit (whitebelyash/mesa-unified#12).
+
+---
+  src/freedreno/vulkan/tu_cmd_buffer.cc | 18 +++++++++++++-----
+  1 file changed, 13 insertions(+), 5 deletions(-)
+
+diff --git a/src/freedreno/vulkan/tu_cmd_buffer.cc b/src/freedreno/vulkan/tu_cmd_buffer.cc
+index 3484e4ed091..f691af1d933 100644
+--- a/src/freedreno/vulkan/tu_cmd_buffer.cc
++++ b/src/freedreno/vulkan/tu_cmd_buffer.cc
+@@ -1371,7 +1371,7 @@ tu_primitive_topology(const struct tu_cmd_buffer *cmd)
+ }
+ 
+ template <chip CHIP>
+-static void
++static bool
+ tu6_update_msaa_disable(struct tu_cmd_buffer *cmd)
+ {
+    VkPrimitiveTopology topology = tu_primitive_topology(cmd);
+@@ -1390,7 +1390,10 @@ tu6_update_msaa_disable(struct tu_cmd_buffer *cmd)
+    if (cmd->state.msaa_disable != msaa_disable) {
+       cmd->state.msaa_disable = msaa_disable;
+       tu6_update_msaa<CHIP>(cmd);
++      return true;
+    }
++
++   return false;
+ }
+ 
+ static const struct tu_vsc_config *
+@@ -8907,6 +8910,7 @@ tu6_draw_common(struct tu_cmd_buffer *cmd,
+    if (dirty & TU_CMD_DIRTY_DESC_SETS)
+       tu6_emit_descriptor_sets<CHIP>(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
+ 
++   bool msaa_disable_updated = false;
+    if (BITSET_TEST(cmd->vk.dynamic_graphics_state.dirty,
+                    MESA_VK_DYNAMIC_MS_RASTERIZATION_SAMPLES) ||
+        BITSET_TEST(cmd->vk.dynamic_graphics_state.dirty,
+@@ -8915,12 +8919,16 @@ tu6_draw_common(struct tu_cmd_buffer *cmd,
+                    MESA_VK_DYNAMIC_RS_LINE_MODE) ||
+        (cmd->state.dirty & (TU_CMD_DIRTY_TES | TU_CMD_DIRTY_PROGRAM)) ||
+        (cmd->state.dirty & TU_CMD_DIRTY_DRAW_STATE)) {
+-      tu6_update_msaa_disable<CHIP>(cmd);
++      msaa_disable_updated = tu6_update_msaa_disable<CHIP>(cmd);
+    }
+ 
+-   if (BITSET_TEST(cmd->vk.dynamic_graphics_state.dirty,
+-                   MESA_VK_DYNAMIC_MS_RASTERIZATION_SAMPLES) ||
+-       (cmd->state.dirty & TU_CMD_DIRTY_DRAW_STATE)) {
++   /* tu6_update_msaa_disable() already emitted the MSAA registers when the
++    * line-mode disable state changed, don't emit the same packets again.
++    */
++   if (!msaa_disable_updated &&
++       (BITSET_TEST(cmd->vk.dynamic_graphics_state.dirty,
++                    MESA_VK_DYNAMIC_MS_RASTERIZATION_SAMPLES) ||
++        (cmd->state.dirty & TU_CMD_DIRTY_DRAW_STATE))) {
+       tu6_update_msaa<CHIP>(cmd);
+    }
+ 

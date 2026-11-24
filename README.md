@@ -112,10 +112,34 @@ upstream, but may also have more bugs.
   - `TU_LRZ_PRESERVE_FS_SIDEEFFECTS=true` — **opt-in** (off by default): keep LRZ across
     fragment-shader depth-write/side-effect draws instead of invalidating it for the pass.
     Can misrender when depth direction is genuinely unknown.
+  - `TU_KGSL_IB_CACHE=0` — disable the retired A8XX command-stream cache. It is on by default:
+    reusing IB storage instead of unbinding/freeing it avoids GPU context invalidation during
+    long sessions.
+  - `TU_IR3_SHUFFLE_BROADCAST=1` — **opt-in**: lower a uniform `subgroupShuffle` index to a
+    broadcast instead of a loop over every relative offset.
 - `-sync` artifacts are **not** interchangeable between build suffixes: on `-N` the sync build (timeline
   sync) regresses performance in most titles, while on `-U` the sync build (KGSL syncobj fixes) is a win —
   best with **DXVK 2.5 and above**. Choose per build suffix; see *Which download do I want?*.
 
+### Per-GPU property overrides (`FD_DEV_FEATURES`)
+
+Every GPU property in `freedreno_devices.py` can be overridden at runtime without rebuilding, which
+is the quickest way to A/B a suspected driver issue:
+
+```bash
+# try the A810 binning value the blob writes, or rule out LRZ fast-clear
+FD_DEV_FEATURES=vsc_unknown_0d08=1
+FD_DEV_FEATURES=enable_lrz_fast_clear=0
+```
+
+Useful ones for A810/A812: `vsc_unknown_0d08`, `enable_lrz_fast_clear`, `has_lrz_feedback`,
+`has_fs_tex_prefetch`, `enable_tp_ubwc_flag_hint`, `autotune_max_tile_count_big_gmem`, and the
+`sysmem_per_ccu_*_cache_size` / `gmem_per_ccu_*_cache_size` values. A misspelled name makes the
+driver exit at load time with `Invalid feature`.
+
+> The A8XX cache layout is carved out of GMEM and validated while building the tables: a layout
+> that does not fit fails the build instead of rendering a black screen, so keep
+> `num_ccu * (VPC + CCU)` below `gmem_size` when experimenting with those properties.
 ## Building locally
 
 Run from the repository root; both scripts download the Android NDK and Mesa source into

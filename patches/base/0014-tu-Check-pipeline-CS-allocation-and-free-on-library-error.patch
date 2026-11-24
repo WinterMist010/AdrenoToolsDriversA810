@@ -1,0 +1,54 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: WinterMist010 <85207868+WinterMist010@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:00:00 +0700
+Subject: [PATCH] tu: check tu_pipeline_allocate_cs() for OOM and free the pipeline on the library error path
+
+tu_pipeline_allocate_cs()'s result was only checked inside the
+following set_combined_state() branch, so a real allocation failure
+was silently ignored and a never-allocated pipeline->cs was used
+afterwards.  Check the result immediately, as the other call sites
+already do.
+
+The VK_EXT_graphics_pipeline_library state-copy error path called
+tu_pipeline_finish() but never vk_object_free(), leaking the
+pipeline object on OOM.  Free it.
+
+From the A8XX codepath audit (whitebelyash/mesa-unified#12).
+
+---
+  src/freedreno/vulkan/tu_pipeline.cc | 11 +++++------
+  1 file changed, 5 insertions(+), 6 deletions(-)
+
+diff --git a/src/freedreno/vulkan/tu_pipeline.cc b/src/freedreno/vulkan/tu_pipeline.cc
+index 02fdac235a1..00e3ed170dc 100644
+--- a/src/freedreno/vulkan/tu_pipeline.cc
++++ b/src/freedreno/vulkan/tu_pipeline.cc
+@@ -4716,16 +4716,14 @@ tu_pipeline_builder_build(struct tu_pipeline_builder *builder,
+ 
+    result = tu_pipeline_allocate_cs(builder->device, *pipeline,
+                                     &builder->layout, builder, NULL);
+-
++   if (result != VK_SUCCESS) {
++      vk_object_free(&builder->device->vk, builder->alloc, *pipeline);
++      return result;
++   }
+ 
+    if (set_combined_state(builder, *pipeline,
+                           VK_GRAPHICS_PIPELINE_LIBRARY_PRE_RASTERIZATION_SHADERS_BIT_EXT |
+                           VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_SHADER_BIT_EXT)) {
+-      if (result != VK_SUCCESS) {
+-         vk_object_free(&builder->device->vk, builder->alloc, *pipeline);
+-         return result;
+-      }
+-
+       tu_emit_program_state<CHIP>(&(*pipeline)->cs, &(*pipeline)->program,
+                                   (*pipeline)->shaders);
+ 
+@@ -4765,6 +4763,7 @@ tu_pipeline_builder_build(struct tu_pipeline_builder *builder,
+                                                &library->state_data);
+       if (result != VK_SUCCESS) {
+          tu_pipeline_finish(*pipeline, builder->device, builder->alloc);
++         vk_object_free(&builder->device->vk, builder->alloc, *pipeline);
+          return result;
+       }
+    } else {

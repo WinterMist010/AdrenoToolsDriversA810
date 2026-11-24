@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 # From: Vauzi-17 (A810 blob tiling), A/B toggle
-"""OPT-IN A/B: switch A810 between the current config and the blob tiling.
+"""OPT-IN A/B: switch the A810 tile alignment between the current and blob values.
 
-Vauzi-17's A810 blob analysis (51-fd810-blob.py) uses num_ccu = 1 with
-tile_align 32x16, i.e. more, smaller bins. This repo's a8xx_810 uses
-num_ccu = 2 with 64x32, which is what VPC/GMEM offsets were tuned against.
+Vauzi-17's A810 blob analysis uses tile_align 32x16, i.e. more, smaller bins,
+while this repo's a8xx_810 uses 64x32.  On a 1-slice / 576 KiB-GMEM part that
+genuinely moves both the per-bin overhead and the tile-space partitioning, so
+it is worth measuring rather than guessing.
 
-On a 1-slice / 576 KiB-GMEM part this genuinely moves both the per-bin
-overhead and the tile-space/CCU partitioning, so it is worth measuring rather
-than guessing. Running this script flips the values; run it again to flip back.
+num_ccu is deliberately NOT part of the A/B: 1 CCU is the tested default here,
+and raising it without also rescaling the per-CCU VPC/CCU sizes makes the
+layout exceed the 576 KiB GMEM.  The build now rejects such a layout (see
+0016-freedreno-Reject-A8XX-cache-layouts-that-do-not-fit-GMEM.patch) instead
+of rendering a black screen, so changing num_ccu has to be a deliberate edit
+together with the sizes.
+
+Running this script flips the tile alignment; run it again to flip back.
 
 Not applied by either builder. To try it:
 
@@ -24,7 +30,7 @@ TARGET = "src/freedreno/common/freedreno_devices.py"
 HEAD = "        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_810],\n"
 CURRENT = (
     HEAD +
-    "        num_ccu = 2,\n"
+    "        num_ccu = 1,\n"
     "        num_slices = 1,\n"
     "        tile_align_w = 64,\n"
     "        tile_align_h = 32,\n"
@@ -49,9 +55,9 @@ def main():
     alt = content.count(ALT)
 
     if cur == 1 and alt == 0:
-        new, msg = content.replace(CURRENT, ALT, 1), "current (2 ccu, 64x32) -> alt (1 ccu, 32x16)"
+        new, msg = content.replace(CURRENT, ALT, 1), "current (64x32) -> alt (32x16)"
     elif alt == 1 and cur == 0:
-        new, msg = content.replace(ALT, CURRENT, 1), "alt (1 ccu, 32x16) -> current (2 ccu, 64x32)"
+        new, msg = content.replace(ALT, CURRENT, 1), "alt (32x16) -> current (64x32)"
     else:
         print(f"{NAME}: WARNING A810 block matched current={cur} alt={alt} "
               f"(want exactly one variant); skipped")

@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: WinterMist010 <85207868+WinterMist010@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:00:00 +0700
+Subject: [PATCH] tu/a8xx: reset the LRZ controls after the end-of-pass flush
+
+The end-of-pass LRZ_FLUSH is asynchronous: it writes the fast-clear
+state back to memory while the next render pass may already bind a
+different LRZ buffer.  If the flushed buffer had a large
+fast-cleared area (about 512 bytes of fast-clear flags per layer and
+up), the flush can still be in flight when the next pass changes the
+LRZ state, and the GPU hangs with VK_ERROR_DEVICE_LOST.
+
+freedreno already resets the LRZ controls at the start of every
+batch (fd6_lrz_inv()) for the same reason.  Do the equivalent at the
+end of the pass on A8XX: write zero to GRAS_LRZ_CNTL/GRAS_LRZ_CNTL2
+so the flush completes before the next pass touches LRZ.
+
+A WFI or a second LRZ_FLUSH also fixes the hang; the register reset
+is the cheapest and matches freedreno.
+
+Ported from the Droid-Deck/Drivers series (patches/lrz/0001,
+reported on Adreno 840 where it reproduced in The Message from Deep
+Space); the workaround is gated on CHIP >= A8XX.
+
+---
+  src/freedreno/vulkan/tu_lrz.cc | 12 ++++++++++++
+  1 file changed, 12 insertions(+)
+
+diff --git a/src/freedreno/vulkan/tu_lrz.cc b/src/freedreno/vulkan/tu_lrz.cc
+index ec556403420..ee2ef16736b 100644
+--- a/src/freedreno/vulkan/tu_lrz.cc
++++ b/src/freedreno/vulkan/tu_lrz.cc
+@@ -934,6 +934,18 @@ tu_lrz_tiling_end(struct tu_cmd_buffer *cmd, struct tu_cs *cs)
+    } else {
+       tu_emit_event_write<CHIP>(cmd, cs, FD_LRZ_FLUSH);
+    }
++
++   /* The LRZ_FLUSH above is asynchronous: it writes the fast-clear state back
++    * to memory while the next render pass may already be binding a different
++    * LRZ buffer.  If the flushed buffer had a large fast-cleared area, the
++    * flush can still be in flight when the next pass changes the LRZ state and
++    * the GPU hangs (device-lost).  freedreno resets the LRZ controls at the
++    * start of every batch (fd6_lrz_inv()) for the same reason, so do the
++    * equivalent here: writing zero to GRAS_LRZ_CNTL/GRAS_LRZ_CNTL2 makes the
++    * flush complete before the next pass touches LRZ.
++    */
++   if (CHIP >= A8XX)
++      tu6_write_lrz_cntl<CHIP>(cmd, cs, {});
+ }
+ TU_GENX(tu_lrz_tiling_end);
+ 

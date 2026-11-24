@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: WinterMist010 <85207868+WinterMist010@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:00:00 +0700
+Subject: [PATCH] tu: fix a NULL dereference in tu_BindBufferMemory2() and a perf-query leak
+
+Two independent fixes found while auditing the A8XX codepaths
+(whitebelyash/mesa-unified#12).
+
+tu_BindBufferMemory2(): memory == VK_NULL_HANDLE is a real case via
+the VK_KHR_maintenance5 bind-status-query pattern, which this
+function already partially implements.  It sets buffer->bo to NULL
+and then unconditionally dereferences it in the following
+vk_address_binding_report() call.  Guard the report.
+
+tu_query_pool_destroy(): the derived-counter cleanup branch tested
+is_perf_query_raw() a second time instead of
+is_perf_query_derived(), so it was unreachable and every derived
+query pool leaked its fd_derived_counter_collection plus the
+hardware counters it reserved.
+
+---
+  src/freedreno/vulkan/tu_buffer.cc     | 8 +++++---
+  src/freedreno/vulkan/tu_query_pool.cc | 2 +-
+  2 files changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/src/freedreno/vulkan/tu_buffer.cc b/src/freedreno/vulkan/tu_buffer.cc
+index c7f70305c35..04e88e50e2a 100644
+--- a/src/freedreno/vulkan/tu_buffer.cc
++++ b/src/freedreno/vulkan/tu_buffer.cc
+@@ -224,9 +224,11 @@ tu_BindBufferMemory2(VkDevice device,
+ 
+       TU_RMV(buffer_bind, dev, buffer);
+ 
+-      vk_address_binding_report(&instance->vk, &buffer->vk.base,
+-                                buffer->bo->iova, buffer->bo->size,
+-                                VK_DEVICE_ADDRESS_BINDING_TYPE_BIND_EXT);
++      if (buffer->bo) {
++         vk_address_binding_report(&instance->vk, &buffer->vk.base,
++                                   buffer->bo->iova, buffer->bo->size,
++                                   VK_DEVICE_ADDRESS_BINDING_TYPE_BIND_EXT);
++      }
+    }
+    return VK_SUCCESS;
+ }
+diff --git a/src/freedreno/vulkan/tu_query_pool.cc b/src/freedreno/vulkan/tu_query_pool.cc
+index 70e6c9dfcea..f5a27c80a48 100644
+--- a/src/freedreno/vulkan/tu_query_pool.cc
++++ b/src/freedreno/vulkan/tu_query_pool.cc
+@@ -301,7 +301,7 @@ tu_query_pool_destroy(struct tu_device *device, struct tu_query_pool *pool,
+          if (perf_query->data[i].pass == 0)
+             fd_perfcntr_release(device->perfcntrs, perf_query->data[i].counter);
+       }
+-   } else if (is_perf_query_raw(pool)) {
++   } else if (is_perf_query_derived(pool)) {
+       struct tu_perf_query_derived *perf_query = &pool->perf_query.derived;
+       struct fd_derived_counter_collection *collection = perf_query->collection;
+ 

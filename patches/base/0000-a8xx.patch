@@ -79,6 +79,7 @@ index f73c1f99a8aa..b23a241f91f6 100644
  };
  
  struct tu_env {
+
 From b2314829411d26a28f2be116418f1f163d29f842 Mon Sep 17 00:00:00 2001
 From: whitebelyash <whbexiumwork@gmail.com>
 Date: Fri, 16 Jan 2026 22:55:20 +0400
@@ -122,6 +123,7 @@ index 60ad3a8ef90..f7d14a67f9a 100644
     /* can't fit attachments into gmem */
     if (!cmd->state.tiling->possible) {
        cmd->state.rp.force_render_mode_reason = "Can't fit attachments into gmem";
+
 From 6b3c67fcfcdf5bd9161df294e6c3335d32a5e762 Mon Sep 17 00:00:00 2001
 From: whitebelyash <whbexiumwork@gmail.com>
 Date: Mon, 2 Mar 2026 13:34:05 +0400
@@ -162,6 +164,7 @@ index a800f365739..906f6e867e0 100644
  };
  
  static void
+
 From 02e0e81509c76da8b5a623b828c0abc234fa8889 Mon Sep 17 00:00:00 2001
 From: whitebelyash <whbexiumwork@gmail.com>
 Date: Wed, 15 Apr 2026 22:57:20 +0400
@@ -172,10 +175,10 @@ Subject: [PATCH] freedreno/common: enable A825
  1 file changed, 25 insertions(+)
 
 diff --git a/src/freedreno/common/freedreno_devices.py b/src/freedreno/common/freedreno_devices.py
-index a74814329fb..452695fc5db 100644
+index 9128b35..5ce3bae 100644
 --- a/src/freedreno/common/freedreno_devices.py
 +++ b/src/freedreno/common/freedreno_devices.py
-@@ -1417,6 +1417,31 @@
+@@ -1532,6 +1532,31 @@ add_gpus([
          raw_magic_regs = a8xx_base_raw_magic_regs,
      ))
  
@@ -184,7 +187,7 @@ index a74814329fb..452695fc5db 100644
 +        GPUId(chip_id=0x44030000, name="Adreno (TM) 825"),
 +    ], A6xxGPUInfo(
 +        CHIP.A8XX,
-+        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1, GPUProps(
++        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1, a8xx_vpc_cache_lg, GPUProps(
 +            # This is probably not an optimal config for gmem/sysmem, but it was working before and I don't have any a825 device to test (neither I have any trace info)
 +            sysmem_ccu_color_cache_fraction = CCUColorCacheFraction.FULL.value,
 +            sysmem_per_ccu_color_cache_size = 128 * 1024,
@@ -206,7 +209,8 @@ index a74814329fb..452695fc5db 100644
 +
  add_gpus([
          GPUId(chip_id=0xffff44030a20, name="Adreno (TM) 829"),
-     ], A6xxGPUInfo(
+         GPUId(chip_id=0x44030a20, name="Adreno (TM) 829"), # KGSL
+
 From 1ebd39a498786be2c3acfc7729c2c5bf0c21d7c8 Mon Sep 17 00:00:00 2001
 From: DVD <dmitrijnemov13@gmail.com>
 Date: Wed, 15 Apr 2026 23:44:38 +0300
@@ -289,15 +293,26 @@ index 827be3b78e8..bd6f80ac395 100644
        /* There seems to be a HW bug where a dummy prefetch sam.s2en always
         * reads its src2 from fiber 0. This may cause faults when fiber 0 is a
 diff --git a/src/freedreno/common/freedreno_devices.py b/src/freedreno/common/freedreno_devices.py
-index 452695fc5db..d9c600ef22c 100644
+index 5ce3bae..79ebb62 100644
 --- a/src/freedreno/common/freedreno_devices.py
 +++ b/src/freedreno/common/freedreno_devices.py
-@@ -1375,18 +1375,32 @@
+@@ -1391,7 +1391,7 @@ add_gpus([
+ a8xx_base = GPUProps(
+         has_dp2acc = False,
+         reg_size_vec4 = 96,
+-        supports_double_threadsize = False,
++        supports_double_threadsize = True,
+         has_dual_wave_dispatch = True,
+         round_robin_errata = False,
+         max_texel_buffer_range_elements = (1 << 29) - 1,
+@@ -1493,15 +1493,28 @@ add_gpus([
         GPUId(chip_id=0xffff44010000, name="Adreno (TM) 810"),
      ], A6xxGPUInfo(
          CHIP.A8XX,
--        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1, GPUProps(
-+        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen2, GPUProps(
+-        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1, a8xx_vpc_cache_sm, GPUProps(
+-            # This is possibly also needed for a830 (and all of a8xx),
+-            # move to a8xx_base if confirmed needed for a830.
++        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen2, a8xx_vpc_cache_sm, GPUProps(
 +            sysmem_ccu_color_cache_fraction = CCUColorCacheFraction.FULL.value,
 +            sysmem_per_ccu_color_cache_size = 64 * 1024,
 +            sysmem_ccu_depth_cache_fraction = CCUColorCacheFraction.THREE_QUARTER.value,
@@ -306,12 +321,6 @@ index 452695fc5db..d9c600ef22c 100644
 +            gmem_per_ccu_color_cache_size = 32 * 1024,
 +            gmem_ccu_depth_cache_fraction = CCUColorCacheFraction.FULL.value,
 +            gmem_per_ccu_depth_cache_size = 48 * 1024,
-+            
-             gmem_vpc_attr_buf_size = 16384,
-             gmem_vpc_pos_buf_size = 12288,
-             gmem_vpc_bv_pos_buf_size = 20480,
--            # This is possibly also needed for a830 (and all of a8xx),
--            # move to a8xx_base if confirmed needed for a830.
 +
 +            reg_size_vec4 = 96, # Для 810 лучше подходить 96, хоть оно и относится ко 2 поколению
 +            gmem_size = 576 * 1024,
@@ -330,10 +339,10 @@ index 452695fc5db..d9c600ef22c 100644
          tile_max_w = 16384,
          tile_max_h = 16384,
          num_vsc_pipes = 32,
-@@ -1423,15 +1437,25 @@
+@@ -1538,15 +1551,22 @@ add_gpus([
      ], A6xxGPUInfo(
          CHIP.A8XX,
-         [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1, GPUProps(
+         [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1, a8xx_vpc_cache_lg, GPUProps(
 +            gmem_ccu_color_cache_fraction = CCUColorCacheFraction.HALF.value,
 +            gmem_per_ccu_color_cache_size = 128 * 1024,
 +            gmem_ccu_depth_cache_fraction = CCUColorCacheFraction.HALF.value,
@@ -343,9 +352,6 @@ index 452695fc5db..d9c600ef22c 100644
              sysmem_per_ccu_color_cache_size = 128 * 1024,
              sysmem_ccu_depth_cache_fraction = CCUColorCacheFraction.THREE_QUARTER.value,
              sysmem_per_ccu_depth_cache_size = 96 * 1024,
-+            gmem_vpc_attr_buf_size = 65536, 
-+            gmem_vpc_pos_buf_size = 32768,
-+            gmem_vpc_bv_pos_buf_size = 32768,
 +            disable_gmem = False,
 +            gmem_size = 2 * 1024 * 1024,
 +            shading_rate_matches_vk = True,
@@ -357,22 +363,16 @@ index 452695fc5db..d9c600ef22c 100644
          tile_align_h = 32,
          tile_max_w = 16416,
          tile_max_h = 16384,
-@@ -1449,8 +1473,26 @@
+@@ -1564,7 +1584,21 @@ add_gpus([
          CHIP.A8XX,
-         [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen2,
+         [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen2, a8xx_vpc_cache_med,
           GPUProps(
 -            shading_rate_matches_vk = True,  # TODO confirm this
--            sysmem_vpc_bv_pos_buf_size = 24576,
-+            sysmem_vpc_bv_pos_buf_size =  24576, 
 +            sysmem_ccu_color_cache_fraction = CCUColorCacheFraction.FULL.value,
 +            sysmem_per_ccu_color_cache_size = 128 * 1024,
 +            sysmem_ccu_depth_cache_fraction = CCUColorCacheFraction.HALF.value,
 +            sysmem_per_ccu_depth_cache_size = 128 * 1024,
 +
-+            gmem_vpc_attr_buf_size = 49152,
-+            gmem_vpc_pos_buf_size = 24576,     
-+            gmem_vpc_bv_pos_buf_size = 16384,  
-+    
 +            gmem_ccu_color_cache_fraction = CCUColorCacheFraction.HALF.value,
 +            gmem_per_ccu_color_cache_size = 128 * 1024, 
 +            gmem_ccu_depth_cache_fraction = CCUColorCacheFraction.HALF.value,
@@ -386,6 +386,7 @@ index 452695fc5db..d9c600ef22c 100644
           )],
          num_ccu = 4,
          num_slices = 2,
+
 From 005782809509954667dbe685c51e91c5bc96c76c Mon Sep 17 00:00:00 2001
 From: DVD <dmitrijnemov13@gmail.com>
 Date: Fri, 17 Apr 2026 00:00:00 +0300
@@ -401,29 +402,27 @@ Signed-off-by: DVD  <dmitrijnemov13@gmail.com>
  1 file changed, 4 insertions(+), 2 deletions(-)
 
 diff --git a/src/freedreno/common/freedreno_devices.py b/src/freedreno/common/freedreno_devices.py
-index d9c600ef22c..654c6c48cbb 100644
+index 79ebb62..e7d6cf2 100644
 --- a/src/freedreno/common/freedreno_devices.py
 +++ b/src/freedreno/common/freedreno_devices.py
-@@ -1375,7 +1375,10 @@
+@@ -1493,7 +1493,7 @@ add_gpus([
         GPUId(chip_id=0xffff44010000, name="Adreno (TM) 810"),
      ], A6xxGPUInfo(
          CHIP.A8XX,
--        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen2, GPUProps(
-+        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1, GPUProps(
-+            sysmem_vpc_attr_buf_size = 131072, 
-+            sysmem_vpc_pos_buf_size = 65536,
-+            sysmem_vpc_bv_pos_buf_size = 32768,
+-        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen2, a8xx_vpc_cache_sm, GPUProps(
++        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1, a8xx_vpc_cache_sm, GPUProps(
              sysmem_ccu_color_cache_fraction = CCUColorCacheFraction.FULL.value,
              sysmem_per_ccu_color_cache_size = 64 * 1024,
              sysmem_ccu_depth_cache_fraction = CCUColorCacheFraction.THREE_QUARTER.value,
-@@ -1389,7 +1392,6 @@
-             gmem_vpc_pos_buf_size = 12288,
-             gmem_vpc_bv_pos_buf_size = 20480,
+@@ -1503,7 +1503,6 @@ add_gpus([
+             gmem_ccu_depth_cache_fraction = CCUColorCacheFraction.FULL.value,
+             gmem_per_ccu_depth_cache_size = 48 * 1024,
  
 -            reg_size_vec4 = 96, # Для 810 лучше подходить 96, хоть оно и относится ко 2 поколению
              gmem_size = 576 * 1024,
              has_ray_intersection = False,
              has_sw_fuse = False,
+
 From bc16322d4ea1fda95bf8e065ad6191c9ef54257a Mon Sep 17 00:00:00 2001
 From: DVD <dmitrijnemov13@gmail.com>
 Date: Fri, 17 Apr 2026 07:41:25 +0300
@@ -668,6 +667,7 @@ index dba43f9a9c96..46508f0c0c82 100644
 -}
 +}
 \ No newline at end of file
+
 From 49c3da3f40ce7322e7ba8a55e1401a69e231f9e6 Mon Sep 17 00:00:00 2001
 From: whitebelyash <whbexiumwork@gmail.com>
 Date: Tue, 5 May 2026 22:25:10 +0400
@@ -694,6 +694,7 @@ index 9c8dabd1542..5b9bc71609f 100644
  
     vk_device_dispatch_table_from_entrypoints(
        &dispatch_table, &wsi_device_entrypoints, false);
+
 From 2a0281b44ed59d9f2d1fb6bb58ab830be3f7145b Mon Sep 17 00:00:00 2001
 From: DVD <disk_dvd@outlook.com>
 Date: Tue, 2 Jun 2026 07:31:07 +0300
@@ -706,10 +707,10 @@ gmem_vpc_bv_pos_buf_size = 32768,
  1 file changed, 6 insertions(+), 4 deletions(-)
 
 diff --git a/src/freedreno/common/freedreno_devices.py b/src/freedreno/common/freedreno_devices.py
-index 654c6c48cbb..cf98a20986b 100644
+index e7d6cf2..b2034a7 100644
 --- a/src/freedreno/common/freedreno_devices.py
 +++ b/src/freedreno/common/freedreno_devices.py
-@@ -1443,14 +1443,16 @@
+@@ -1554,7 +1554,7 @@ add_gpus([
              gmem_per_ccu_color_cache_size = 128 * 1024,
              gmem_ccu_depth_cache_fraction = CCUColorCacheFraction.HALF.value,
              gmem_per_ccu_depth_cache_size = 128 * 1024,
@@ -718,26 +719,7 @@ index 654c6c48cbb..cf98a20986b 100644
              sysmem_ccu_color_cache_fraction = CCUColorCacheFraction.FULL.value,
              sysmem_per_ccu_color_cache_size = 128 * 1024,
              sysmem_ccu_depth_cache_fraction = CCUColorCacheFraction.THREE_QUARTER.value,
-             sysmem_per_ccu_depth_cache_size = 96 * 1024,
--            gmem_vpc_attr_buf_size = 65536, 
--            gmem_vpc_pos_buf_size = 32768,
-+            
-+            gmem_vpc_attr_buf_size = 49152, 
-+            gmem_vpc_pos_buf_size = 24576,
-             gmem_vpc_bv_pos_buf_size = 32768,
-+            
-             disable_gmem = False,
-             gmem_size = 2 * 1024 * 1024,
-             shading_rate_matches_vk = True,
-@@ -1483,7 +1485,7 @@
- 
-             gmem_vpc_attr_buf_size = 49152,
-             gmem_vpc_pos_buf_size = 24576,     
--            gmem_vpc_bv_pos_buf_size = 16384,  
-+            gmem_vpc_bv_pos_buf_size = 32768,  
-     
-             gmem_ccu_color_cache_fraction = CCUColorCacheFraction.HALF.value,
-             gmem_per_ccu_color_cache_size = 128 * 1024, 
+
 From d854a45405d71f3b49be1e41b1ee268d06f1f52b Mon Sep 17 00:00:00 2001
 From: DVD <disk_dvd@outlook.com>
 Date: Tue, 2 Jun 2026 07:33:48 +0300
@@ -747,18 +729,19 @@ Subject: [PATCH] tu/pipeline: enable custom resolve for A810, off MSAA, FDM
 As practice has shown, this gives an increase in dx12 games, but does not provide any increase in dx11 In games, artifacts don't appear. This applies to the A810-830, I think because they have the same blob. That is, there's no increase on the A840.
 
 Fix the GPU detection: is_a830 was missing a comparison ("|| 0x44050001" is
-always true), which made is_target_gpu true on every GPU. Match chip ids on
-their low 32 bits so both msm (0xffff-prefixed) and KGSL ids work, and treat
-A812 as part of the A810 family.
+always true), which made is_target_gpu true on every GPU (A840 included).
+Match chip ids on their low 32 bits so both msm (0xffff-prefixed) and KGSL
+ids work, cover every chip id of Mesa's A830 entry (A830, A830v1, A831), and
+treat A812 as part of the A810 family.
 ---
- src/freedreno/vulkan/tu_pipeline.cc | 27 ++++++++++++++-------------
- 1 file changed, 14 insertions(+), 13 deletions(-)
+ src/freedreno/vulkan/tu_pipeline.cc | 28 +++++++++++++++-------------
+ 1 file changed, 15 insertions(+), 13 deletions(-)
 
 diff --git a/src/freedreno/vulkan/tu_pipeline.cc b/src/freedreno/vulkan/tu_pipeline.cc
 index 46508f0c0c82..219fff57c21c 100644
 --- a/src/freedreno/vulkan/tu_pipeline.cc
 +++ b/src/freedreno/vulkan/tu_pipeline.cc
-@@ -1743,13 +1743,17 @@ tu_pipeline_builder_compile_shaders(struct tu_pipeline_builder *builder,
+@@ -1743,13 +1743,18 @@ tu_pipeline_builder_compile_shaders(struct tu_pipeline_builder *builder,
     };
     VkPipelineCreationFeedback stage_feedbacks[MESA_SHADER_STAGES] = { 0 };
  
@@ -776,13 +759,14 @@ index 46508f0c0c82..219fff57c21c 100644
 +                        chip_id_lo == 0x44010200;   /* A812 */
 +   const bool is_a825 = chip_id_lo == 0x44030000;
 +   const bool is_a829 = chip_id_lo == 0x44030A20;
-+   const bool is_a830 = chip_id_lo == 0x44050000 ||
-+                        chip_id_lo == 0x44050001;
++   const bool is_a830 = chip_id_lo == 0x44050000 || /* A830 */
++                        chip_id_lo == 0x44050001 || /* A830v1 / KGSL */
++                        chip_id_lo == 0x44050100;   /* A831 */
 +   const bool is_target_gpu = is_a810 || is_a825 || is_a829 || is_a830;
  
     const bool executable_info =
        builder->create_flags &
-@@ -1857,9 +1861,8 @@ tu_pipeline_builder_compile_shaders(struct tu_pipeline_builder *builder,
+@@ -1857,9 +1862,8 @@ tu_pipeline_builder_compile_shaders(struct tu_pipeline_builder *builder,
  
     if (builder->state &
         VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_SHADER_BIT_EXT) {
@@ -793,7 +777,7 @@ index 46508f0c0c82..219fff57c21c 100644
  
        if (builder->device->physical_device->instance->drirc.misc.emulate_alpha_to_coverage) {
           keys[MESA_SHADER_FRAGMENT].emulate_alpha_to_coverage = true;
-@@ -1912,9 +1915,8 @@ tu_pipeline_builder_compile_shaders(struct tu_pipeline_builder *builder,
+@@ -1912,9 +1916,8 @@ tu_pipeline_builder_compile_shaders(struct tu_pipeline_builder *builder,
           }
        }
  
@@ -804,7 +788,7 @@ index 46508f0c0c82..219fff57c21c 100644
     }
  
     if (builder->state & VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_SHADER_BIT_EXT) {
-@@ -1955,9 +1957,8 @@ tu_pipeline_builder_compile_shaders(struct tu_pipeline_builder *builder,
+@@ -1955,9 +1958,8 @@ tu_pipeline_builder_compile_shaders(struct tu_pipeline_builder *builder,
         * just checked in tu6_emit_fs_inputs.  We will also copy the value to
         * tu_shader_key::force_sample_interp in a bit.
         */
@@ -815,13 +799,14 @@ index 46508f0c0c82..219fff57c21c 100644
     }
  
     unsigned char pipeline_blake3[BLAKE3_KEY_LEN];
-@@ -5282,4 +5283,4 @@ tu_GetPipelineExecutableInternalRepresentationsKHR(
+@@ -5282,4 +5284,4 @@ tu_GetPipelineExecutableInternalRepresentationsKHR(
     }
  
     return incomplete_text ? VK_INCOMPLETE : vk_outarray_status(&out);
 -}
 \ No newline at end of file
 +}
+
 From d96a891e1760a00aaa0763453443437f69d15563 Mon Sep 17 00:00:00 2001
 From: DVD <disk_dvd@outlook.com>
 Date: Sat, 30 May 2026 10:30:06 +0300
@@ -970,6 +955,7 @@ index aa6b04693f3a..af2abd0bc8e9 100644
                                      &upload_remaining);
              }
           }
+
 From 0477f79d425745bdb627d0056604777b6a01241c Mon Sep 17 00:00:00 2001
 From: whitebelyash <whbexiumwork@gmail.com>
 Date: Tue, 6 Oct 2026 04:47:38 -0400
@@ -981,10 +967,10 @@ Cherry-picked from whitebelyash/mesa-unified@a37abf89 (turnip/gen8).
  1 file changed, 3 insertions(+)
 
 diff --git a/src/freedreno/common/freedreno_devices.py b/src/freedreno/common/freedreno_devices.py
-index 5a200f1..8a699d6 100644
+index b2034a7..fac310e 100644
 --- a/src/freedreno/common/freedreno_devices.py
 +++ b/src/freedreno/common/freedreno_devices.py
-@@ -1482,6 +1482,9 @@ a8xx_gen2 = GPUProps(
+@@ -1491,6 +1491,9 @@ a8xx_vpc_cache_sm = GPUProps(
  
  add_gpus([
         GPUId(chip_id=0xffff44010000, name="Adreno (TM) 810"),
@@ -993,7 +979,7 @@ index 5a200f1..8a699d6 100644
 +       GPUId(chip_id=0x44010200, name="Adreno (TM) 812"), # KGSL
      ], A6xxGPUInfo(
          CHIP.A8XX,
-         [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1, GPUProps(
+         [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1, a8xx_vpc_cache_sm, GPUProps(
 -- 
 2.47.3
 
@@ -1009,11 +995,11 @@ Cherry-picked from whitebelyash/mesa-unified@9c7e0226 (turnip/gen8).
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/src/freedreno/common/freedreno_devices.py b/src/freedreno/common/freedreno_devices.py
-index 8a699d6..12b35c5 100644
+index fac310e..318b53c 100644
 --- a/src/freedreno/common/freedreno_devices.py
 +++ b/src/freedreno/common/freedreno_devices.py
-@@ -1493,7 +1493,7 @@ add_gpus([
-             sysmem_vpc_bv_pos_buf_size = 32768,
+@@ -1499,7 +1499,7 @@ add_gpus([
+         [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1, a8xx_vpc_cache_sm, GPUProps(
              sysmem_ccu_color_cache_fraction = CCUColorCacheFraction.FULL.value,
              sysmem_per_ccu_color_cache_size = 64 * 1024,
 -            sysmem_ccu_depth_cache_fraction = CCUColorCacheFraction.THREE_QUARTER.value,
@@ -1024,7 +1010,9 @@ index 8a699d6..12b35c5 100644
 -- 
 2.47.3
 
-
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Unknown <unknown@example.invalid>
+Date: Thu, 15 Oct 2026 00:00:00 +0000
 Subject: [PATCH] freedreno/common: merge a810/a825 config rework into a8xx
 
 Add a dedicated a8xx_810 GPUProps set and rework the Adreno 810 and
@@ -1033,16 +1021,27 @@ supersedes the earlier inline A810 props and the A810/A812 sysmem depth
 CCU fraction tweak.
 
 A810 (a8xx_810):
- - drop a8xx_gen1; use a7xx_base, a7xx_gen3, a8xx_base, a8xx_810
- - num_ccu 1 -> 2, HBB left at default to not cause regressions in certain workloads
- - sysmem CCU color/depth cache 64K/64K -> 64/128K, derived from blob, depth fraction
-   FULL -> THREE_QUARTER
- - gmem CCU color/depth cache 32K/48K -> 16K/32K
+ - drop a8xx_gen1 and a8xx_vpc_cache_sm; use a7xx_base, a7xx_gen3,
+   a8xx_base, a8xx_810 (every prop they set is set explicitly)
+ - HBB left at default to not cause regressions in certain workloads
+ - sysmem CCU color/depth cache 64K/64K -> 128K/256K.  These are the
+   a8xx_gen1 defaults used as per-CCU values, not a blob measurement; the
+   sizes are what fits the 576 KiB GMEM with num_ccu = 1.  See the
+   sizing note in the a8xx_810 block.
+ - gmem CCU color/depth cache 32K/48K -> 32K/64K
  - gmem VPC attr/pos/bv_pos 16K/12K/20K -> 48K/24K/20K, aligned with blob
  - enable_tp_ubwc_flag_hint = True
- - sysmem VPC attr/pos/bv_pos 131072/65536/32768 -> 49152/16384/20480, aligned with blob
-   (A810 Vulkan blob trace; old values were the Gen8 default)
- - vsc_unknown_0d08 = 1 (A810 Vulkan/GLES blob traces), although causes GMEM rendering to break. Disabled for now.
+ - supports_double_threadsize = False (the gen8 a8xx_base sets True for
+   all a8xx; upstream A810 keeps it off)
+ - sysmem VPC attr/pos/bv_pos 32K/12K/20K -> 48K/16K/20K, aligned with
+   blob (A810 Vulkan blob trace)
+ - vsc_unknown_0d08 = 1 (A810 Vulkan/GLES blob traces) is left commented
+   out: it breaks GMEM rendering.
+
+num_ccu stays at 1 for A810: one CCU benchmarked faster than two.  The
+layout is 1 * (48K + 16K + 20K VPC + 128K + 256K CCU) = 479232 bytes,
+which fits the 576 KiB GMEM; an overflowing layout underflows the depth
+offset and renders black.
 
 A825:
  - drop disable_gmem = False (left at its default)
@@ -1051,56 +1050,55 @@ A825:
 The A812/KGSL GPU IDs are already added earlier in the series, so they
 are not repeated here.
 ---
- src/freedreno/common/freedreno_devices.py | 76 ++++----
- 1 file changed, 49 insertions(+), 27 deletions(-)
+ src/freedreno/common/freedreno_devices.py | 66 ++++++++++++++++++++++++++++++++++++++++++++++--------------------
+ 1 file changed, 46 insertions(+), 20 deletions(-)
 
 diff --git a/src/freedreno/common/freedreno_devices.py b/src/freedreno/common/freedreno_devices.py
+index 318b53c..786f7cf 100644
 --- a/src/freedreno/common/freedreno_devices.py
 +++ b/src/freedreno/common/freedreno_devices.py
-@@ -1482,6 +1482,51 @@
-         has_salu_int_narrowing_quirk = True
+@@ -1489,6 +1489,49 @@ a8xx_vpc_cache_sm = GPUProps(
+         gmem_vpc_bv_pos_buf_size = 20 * 1024,
  )
  
 +a8xx_810 = GPUProps(
-+    # Sysmem VPC buffer layout: A810 Vulkan blob trace (was the 128K/64K/32K Gen8 default)
-+    sysmem_vpc_attr_buf_size = 49152,   # 48 KiB
-+    sysmem_vpc_pos_buf_size  = 16384,   # 16 KiB
++    # Sysmem VPC buffer layout: A810 Vulkan blob trace (was the 128K/64K/32K Gen8 default).
++    sysmem_vpc_attr_buf_size   = 49152, # 48 KiB
++    sysmem_vpc_pos_buf_size    = 16384, # 16 KiB
 +    sysmem_vpc_bv_pos_buf_size = 20480, # 20 KiB
 +
-+    # Sysmem CCU cache sizing tuned to analyzed A810 blob.
++    # Sysmem CCU caches: a8xx_gen1 defaults used as per-CCU values, not a blob
++    # measurement. Sized to fit the 576 KiB GMEM with num_ccu = 1:
++    #   1 * (48K + 16K + 20K VPC + 128K + 256K CCU) = 479232 bytes.
++    # An overflowing layout underflows the depth offset and renders black.
 +    sysmem_ccu_color_cache_fraction = CCUColorCacheFraction.FULL.value,
-+    sysmem_per_ccu_color_cache_size = 64 * 1024,
-+    sysmem_ccu_depth_cache_fraction = CCUColorCacheFraction.THREE_QUARTER.value,
-+    sysmem_per_ccu_depth_cache_size = 128 * 1024,
++    sysmem_per_ccu_color_cache_size = 128 * 1024,
++    sysmem_ccu_depth_cache_fraction = CCUColorCacheFraction.FULL.value,
++    sysmem_per_ccu_depth_cache_size = 256 * 1024,
 +
-+    # GMEM VPC buffer layout:
-+    # Match blob anaylzed sizes. ~8% increase in perf vs previous config
-+    # Dont know what the per_ccu stuff should be though.
-+    gmem_vpc_attr_buf_size   = 49152,   # 48 KiB
-+    gmem_vpc_pos_buf_size    = 24576,   # 24 KiB
-+    gmem_vpc_bv_pos_buf_size = 20480,   # 20 KiB
++    # GMEM VPC buffer layout: matches analyzed blob sizes, ~8% perf vs the previous config.
++    gmem_vpc_attr_buf_size   = 49152, # 48 KiB
++    gmem_vpc_pos_buf_size    = 24576, # 24 KiB
++    gmem_vpc_bv_pos_buf_size = 20480, # 20 KiB
 +
-+    # GMEM CCU cache fractions matching A810 hardware cache partitions
++    # GMEM CCU caches. The per-CCU sizes are not blob-verified.
 +    gmem_ccu_color_cache_fraction = CCUColorCacheFraction.EIGHTH.value,
-+    gmem_per_ccu_color_cache_size = 16 * 1024,
++    gmem_per_ccu_color_cache_size = 32 * 1024,
 +    gmem_ccu_depth_cache_fraction = CCUColorCacheFraction.FULL.value,
-+    gmem_per_ccu_depth_cache_size = 32 * 1024,
++    gmem_per_ccu_depth_cache_size = 64 * 1024,
 +
-+    # Hardware capabilities & feature toggles
-+    gmem_size = 576 * 1024,               # 576 KiB dedicated GMEM
-+    has_ray_intersection = False,         # A810 lacks HW BVH/Ray-Tracing units
-+    has_sw_fuse = False,                  # Disable SW fuse workaround not applicable to A810
-+    has_fs_tex_prefetch = False,          # Disabled: prevents texture sampler artifacts/hangs
-+    has_salu_int_narrowing_quirk = True,  # Fixes A8xx SALU integer narrowing errata
-+    shading_rate_matches_vk = True,       # Proper VRS mapping for Vulkan 1.3
-+    enable_tp_ubwc_flag_hint = True,      # Fixes UBWC texture corruption and screen artifacts
-+    #vsc_unknown_0d08 = 1,                 # Binning setup value; A810 Vulkan+GLES blob traces both write 1 #Enabling this causes GMEM to break.
-+    #max_samples = 4,                      # Max MSAA samples (fd_dev_info.props.max_samples; consumed by turnip + ir3)
++    gmem_size = 576 * 1024,              # 576 KiB dedicated GMEM
++    has_ray_intersection = False,        # no HW BVH/ray tracing
++    has_sw_fuse = False,
++    has_fs_tex_prefetch = False,         # prevents texture sampler artifacts/hangs
++    has_salu_int_narrowing_quirk = True,
++    shading_rate_matches_vk = True,
++    enable_tp_ubwc_flag_hint = True,     # fixes UBWC texture corruption
++    # gen8 flips this on in a8xx_base for all a8xx; upstream a810 keeps it off.
++    supports_double_threadsize = False,
 +
-+    # Autotuner tuning for the 576 KiB dedicated GMEM.
-+    #autotune_gmem_tile_overhead_bytes = 8192,
-+    #autotune_gmem_margin_percent = 135,
-+    #autotune_max_tile_count_big_gmem = 8,
++    # Blob traces (Vulkan + GLES) write 1 here, but enabling it breaks GMEM rendering:
++    # vsc_unknown_0d08 = 1,
 +
 +    # Set to True if GMEM breaks. Probably not needed.
 +    # disable_gmem = False,
@@ -1109,14 +1107,11 @@ diff --git a/src/freedreno/common/freedreno_devices.py b/src/freedreno/common/fr
  add_gpus([
         GPUId(chip_id=0xffff44010000, name="Adreno (TM) 810"),
         GPUId(chip_id=0xffff44010200, name="Adreno (TM) 812"),
-@@ -1489,31 +1534,8 @@
+@@ -1496,23 +1539,7 @@ add_gpus([
         GPUId(chip_id=0x44010200, name="Adreno (TM) 812"), # KGSL
      ], A6xxGPUInfo(
          CHIP.A8XX,
--        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1, GPUProps(
--            sysmem_vpc_attr_buf_size = 131072, 
--            sysmem_vpc_pos_buf_size = 65536,
--            sysmem_vpc_bv_pos_buf_size = 32768,
+-        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_gen1, a8xx_vpc_cache_sm, GPUProps(
 -            sysmem_ccu_color_cache_fraction = CCUColorCacheFraction.FULL.value,
 -            sysmem_per_ccu_color_cache_size = 64 * 1024,
 -            sysmem_ccu_depth_cache_fraction = CCUColorCacheFraction.FULL.value,
@@ -1125,10 +1120,6 @@ diff --git a/src/freedreno/common/freedreno_devices.py b/src/freedreno/common/fr
 -            gmem_per_ccu_color_cache_size = 32 * 1024,
 -            gmem_ccu_depth_cache_fraction = CCUColorCacheFraction.FULL.value,
 -            gmem_per_ccu_depth_cache_size = 48 * 1024,
--            
--            gmem_vpc_attr_buf_size = 16384,
--            gmem_vpc_pos_buf_size = 12288,
--            gmem_vpc_bv_pos_buf_size = 20480,
 -
 -            gmem_size = 576 * 1024,
 -            has_ray_intersection = False,
@@ -1137,21 +1128,20 @@ diff --git a/src/freedreno/common/freedreno_devices.py b/src/freedreno/common/fr
 -            has_salu_int_narrowing_quirk = True,
 -            shading_rate_matches_vk = True,
 -        )],
--        num_ccu = 1,
 +        [a7xx_base, a7xx_gen3, a8xx_base, a8xx_810],
-+        num_ccu = 2,
+-        num_ccu = 1,
++        num_ccu = 1,
          num_slices = 1,
          tile_align_w = 64,
-         tile_align_h = 32,
-@@ -1546,7 +1569,6 @@
-             gmem_vpc_pos_buf_size = 24576,
-             gmem_vpc_bv_pos_buf_size = 32768,
-             
+@@ -1562,7 +1589,6 @@ add_gpus([
+             sysmem_per_ccu_color_cache_size = 128 * 1024,
+             sysmem_ccu_depth_cache_fraction = CCUColorCacheFraction.THREE_QUARTER.value,
+             sysmem_per_ccu_depth_cache_size = 96 * 1024,
 -            disable_gmem = False,
              gmem_size = 2 * 1024 * 1024,
              shading_rate_matches_vk = True,
          )],
-@@ -1557,7 +1579,7 @@
+@@ -1573,7 +1599,7 @@ add_gpus([
          tile_max_w = 16416,
          tile_max_h = 16384,
          num_vsc_pipes = 32,
@@ -1241,8 +1231,9 @@ Date: Sun, 1 Nov 2026 00:00:00 +0000
 Subject: [PATCH] freedreno/common: add vsc_unknown_0d08 GPU prop
 
 A810 Vulkan and GLES blob traces both write 1 to VSC_UNKNOWN_0D08 in the
-binning setup. Add a per-GPU prop (default 0, a8xx_810 sets 1). The
-tu_cmd_buffer.cc emit is switched over by 51-fd810-vsc0d08.py.
+binning setup. Add a per-GPU prop (default 0). a8xx_810 keeps the value
+of 1 commented out because it breaks GMEM rendering. The tu_cmd_buffer.cc
+emit is not part of this series.
 ---
  src/freedreno/common/freedreno_dev_info.h | 3 +++
  1 file changed, 3 insertions(+)

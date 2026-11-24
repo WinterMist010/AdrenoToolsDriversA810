@@ -51,13 +51,13 @@ CHANGES_FILE="$repo_root/.github/release-notes/changes.md"
 # ---------------------------------------------------------------------------
 declare -A DESC=(
   # --- patches/base - applied to upstream Mesa by upstream_patches.sh ------
-  ["0000-a8xx.patch"]="One \`git format-patch\` bundle that carries the whole A8XX bring-up stack (16 commits rebased onto the current Mesa base). It contains:
+  ["0000-a8xx.patch"]="One \`git format-patch\` bundle that carries the whole A8XX bring-up stack (15 commits rebased onto the current Mesa base). It contains:
 - DECK_EMU: advertise as a Steam Deck / AMD RADV VANGOGH (vendor 0x1002) so titles that refuse an unknown GPU still start - \`TU_DEBUG=deck_emu\`
 - \`disable_gmem\` GPU property and the plumbing to force system-memory rendering
 - drm-shim support for Adreno (host-side tooling)
 - A825 enablement and A8XX family device-config updates
 - A810 / A812 device configs: VPC and CCU sizing, depth-CCU fraction, A825/829 offset fixes
-- A810 workarounds: a few features disabled, custom resolve path, MSAA and FDM off, ir3 UBO-promotion range coalescing, A812 treated like A810
+- A8XX workarounds (A810/A812/A825/A829/A830): custom resolve kept, FDM per-layer and forced per-sample interpolation off, ir3 UBO-promotion range coalescing, A812 treated like A810
 - \`TU_DEBUG=nocb\` enforced by default (concurrent binning off)
 - \`vsc_unknown_0d08\` GPU property (A810 blob traces emit \`VSC_UNKNOWN_0D08=1\`)
 (whitebelyash, DVD, Karmjit Mahil / Igalia, WinterMist010)"
@@ -75,6 +75,13 @@ declare -A DESC=(
   ["0008-tu-mesh-Experimental-indexed-draw-for-mesh-shaders-w.patch"]="mesh: experimental indexed draw for mesh shaders with a direct index buffer (mesh series)"
   ["0009-tu-mesh-Wait-for-the-ME-before-indirect-chunk-draws.patch"]="mesh: wait for the ME before indirect chunk draws - fixes GPU hangs (mesh series)"
   ["0010-tu-kgsl-Enable-I-O-coherency-for-host-coherent-allocat.patch"]="tu/kgsl: enable I/O coherency for host-coherent allocations - detects KGSL_MEMFLAGS_IOCOHERENT at device load and uses write-back cached, CPU-coherent buffers when supported (\`TU_KGSL_NO_IOCOHERENT=1\` disables) (WinterMist010)"
+  ["0011-tu-a8xx-Reset-LRZ-controls-after-the-end-of-pass-flush.patch"]="tu/a8xx: write zero to GRAS_LRZ_CNTL/GRAS_LRZ_CNTL2 after the end-of-pass LRZ_FLUSH, like freedreno does, so a large fast-cleared LRZ buffer no longer hangs the GPU (device-lost) when the next pass binds a different one (Droid-Deck/Drivers)"
+  ["0012-tu-kgsl-Cache-retired-A8XX-IB-storage.patch"]="tu/kgsl: reuse retired A8XX command-stream (IB) storage instead of unbinding/freeing it on every drop - repeated alias churn could invalidate the GPU context. 256 MiB idle cap; \`TU_KGSL_IB_CACHE=0\` disables (maxjivi05)"
+  ["0013-tu-Fix-bind-buffer-NULL-deref-and-perf-query-leak.patch"]="tu: guard the VK_KHR_maintenance5 bind-status path in \`tu_BindBufferMemory2\` (buffer->bo can be NULL) and fix \`tu_query_pool_destroy\` testing the raw/derived predicate twice, which leaked derived perf counters (whitebelyash/mesa-unified#12)"
+  ["0014-tu-Check-pipeline-CS-allocation-and-free-on-library-error.patch"]="tu: check \`tu_pipeline_allocate_cs()\` for OOM right away (the error was only inspected inside an unrelated branch) and free the pipeline object on the graphics-library state-copy error path (whitebelyash/mesa-unified#12)"
+  ["0015-tu-Avoid-emitting-the-MSAA-registers-twice.patch"]="tu: don't emit the six MSAA registers twice for the same draw when the line-mode MSAA disable state changed (whitebelyash/mesa-unified#12)"
+  ["0016-freedreno-Reject-A8XX-cache-layouts-that-do-not-fit-GMEM.patch"]="freedreno: refuse to build an A8XX cache layout whose per-CCU VPC/CCU reservations do not fit in GMEM - the depth offset underflows and the GPU renders black (this is how the A810 sizes were derived)"
+  ["0017-ir3-Broadcast-subgroup-shuffles-with-a-uniform-index.patch"]="ir3: lower a uniform \`subgroupShuffle\` index to a broadcast and serve equal source indices together instead of looping over every relative offset; with half-wave subgroups that loop ran ~32 iterations per shuffle. Opt-in until tested: \`TU_IR3_SHUFFLE_BROADCAST=1\` (Droid-Deck/Drivers)"
   ["51-fd810-vsc0d08.py"]="Python patch: emit \`VSC_UNKNOWN_0D08\` from the per-GPU \`vsc_unknown_0d08\` property (A810 blob traces write 1). Runs after \`0000-a8xx.patch\` (WinterMist010)"
   ["52-a8xx-resolve-cr-cntl.py"]="Python patch: emit \`REG_A8XX_RB_RESOLVE_CR_CNTL=1\` in the context preamble, matching proprietary A8XX blob captures (initialises the color/clear resolve block) (Vauzi-17)"
   ["54-a8xx-sp-hysteresis.py"]="Python patch: initialise the Shader-Processor hysteresis thresholds. Stops SP ALU clusters power-gating between draws, cutting wake-up latency in draw-heavy workloads (Vauzi-17)"
@@ -86,6 +93,7 @@ declare -A DESC=(
   ["60-ir3-sched-prefer-lower-live.py"]="Python patch: ir3 scheduler prefers ready instructions with a lower live-register effect when breaking ties under pressure, reducing spikes past the small A810/A812 GPR budget (\`TU_IR3_SCHED_LOWER_LIVE\`) (Vauzi-17)"
   ["61-a8xx-lrz-bidir-disable.py"]="Python patch: set GRAS_SC_BIN_CNTL.FORCE_BI_DIR_LRZ_DISABLE on A8XX sysmem and LRZ-disabled passes, matching blob-captured LRZ coherence (Vauzi-17)"
   ["62-a8xx-lrz-color-comp-mask.py"]="Python patch: emit GRAS_LRZ_COLOR_COMP_MASK with the MRT write masks on A8XX so early-Z LRZ culling stays coherent across multi-MRT / disabled-attachment draws (Vauzi-17)"
+  ["63-a8xx-config-cleanup.py"]="Python patch: document the A810 tuning (one CCU, a8xx_gen1 per-CCU sizes, intentional 64 KiB shared mem) and drop the dead \`max_samples\` knob, which has no matching field in \`freedreno_dev_info.h\`"
   ["a8xx_shared_mem.py"]="Python patch: increase \`cs_shared_mem_size\` from 32*1024 to 64*1024 in \`freedreno_devices.py\` - robust global replace of whitebelyash's mesa-unified shared-mem bump, idempotent against context drift (WinterMist010)"
   ["add_ubwc_swapchain_usage.py"]="Python patch: request UBWC-compressed swapchain buffers on Adreno - without UBWC, some upscalers/frame generators get no compressed source and the screen goes green then black (WinterMist010)"
   ["perf-kgsl-pwr-constraint.py"]="Python patch (opt-in): pin the KGSL context to the GPU maximum power level (PWR_MAX) for bursty emulator frames. Trades battery life/thermals for peak performance - not applied by default; copy from \`patches/optional\` to \`patches/base\` to enable (Vauzi-17)"
@@ -116,36 +124,19 @@ has_patches() {
 # Print "- `name`" bullets with an indented description, sorted by name across
 # all extensions so numbered series stay in order.
 list_patches() {
-  local dir="$1" label="$2" count="${3:-}" f name desc n=0 first=1
+  local dir="$1" f name desc
   while IFS= read -r f; do
     [ -e "$f" ] || continue
     case "$f" in *Zone.Identifier*) continue ;; esac
     name="$(basename "$f")"
     desc="$(describe "$name")"
-    n=$((n + 1))
-    if [ "$first" -eq 1 ]; then
-      if [ -z "$count" ]; then
-        count="$n"
-      fi
-      printf '<details>\n'
-      local plural="es"
-      [ "$count" -eq 1 ] && plural=""
-      printf '<summary>📋 %s — %s patch%s applied (click to expand)</summary>\n\n' "$label" "$count" "$plural"
-      first=0
-    fi
-    printf -- "- \`%s\`\n" "$name"
+    printf -- '- `%s`\n' "$name"
     if [ -n "$desc" ]; then
       printf '%s\n' "$desc" | sed 's/^/  /'
     fi
   done < <(ls -1 "$dir"/*.patch "$dir"/*.diff "$dir"/*.py 2>/dev/null | sort)
-
-  if [ "$n" -eq 0 ]; then
-    printf '_No patches found.\n'
-    return
-  fi
-
-  printf '</details>\n'
 }
+
 count_patches() {
   local dir="$1" f n=0
   while IFS= read -r f; do
@@ -156,6 +147,8 @@ count_patches() {
   printf '%s' "$n"
 }
 
+# git remote ("git@github.com:o/r.git", "ssh://git@host/o/r", "https://...")
+# -> a browsable URL for commit links.
 remote_to_web() {
   local url="$1" host path
   url="${url%.git}"
@@ -182,8 +175,6 @@ case "$VARIANT" in
     SYNC_DIR_NAME="patches/sync2"
     SYNC_DIR="$repo_root/patches/sync2"
     SYNC_NOTE="Applied only to the **sync** artifact (\`Turnip-A81X-sync-V${BUILD_VERSION}.zip\`). The \`-U\` builder takes these from \`patches/sync2\`; the old \`patches/sync\` folder is used by the \`-N\` builder instead."
-    PRIMARY_LABEL="Base patches - \`patches/base\`"
-    SYNC_LABEL="Sync patches - \`patches/sync2\`"
     BRANCH_EQUIV="no"
     ZIP_NAMES="\`Turnip-A81X-V${BUILD_VERSION}.zip\`, \`Turnip-A81X-sync-V${BUILD_VERSION}.zip\`"
     ;;
@@ -200,9 +191,6 @@ case "$VARIANT" in
     SYNC_DIR_NAME="patches/sync"
     SYNC_DIR="$repo_root/patches/sync"
     SYNC_NOTE="\`-sync\` is a **separate** artifact (\`Turnip-A81X-sync-V${BUILD_VERSION}.zip\`) built from the same branch with the sync patches below added on top."
-    PRIMARY_LABEL="Fork patches - \`patches/fork\`"
-    SYNC_LABEL="Sync patches - \`patches/sync\`"
-    BRANCH_LABEL="Equivalent patches from \`patches/base\`"
     BRANCH_EQUIV="yes"
     ZIP_NAMES="\`Turnip-A81X-V${BUILD_VERSION}.zip\`, \`Turnip-A81X-sync-V${BUILD_VERSION}.zip\`"
     ;;
@@ -213,7 +201,7 @@ esac
 # ---------------------------------------------------------------------------
 PRIMARY_COUNT="$(count_patches "$PRIMARY_DIR")"
 if [ "$PRIMARY_COUNT" -gt 0 ]; then
-  PRIMARY_LIST="$(list_patches "$PRIMARY_DIR" "$PRIMARY_LABEL" "$PRIMARY_COUNT")"
+  PRIMARY_LIST="$(list_patches "$PRIMARY_DIR")"
 elif [ "$VARIANT" = "new" ]; then
   PRIMARY_LIST="_No \`patches/fork\` patches - the A8XX device configs and workarounds ship inside the \`new-a810\` branch, see **Baked into the new-a810 branch** below._"
 else
@@ -222,15 +210,14 @@ fi
 
 SYNC_COUNT="$(count_patches "$SYNC_DIR")"
 if [ "$SYNC_COUNT" -gt 0 ]; then
-  SYNC_LIST="$(list_patches "$SYNC_DIR" "$SYNC_LABEL" "$SYNC_COUNT")"
+  SYNC_LIST="$(list_patches "$SYNC_DIR")"
 else
   SYNC_LIST="_No sync patches present._"
 fi
 
-BRANCH_COUNT="$(count_patches "$repo_root/patches/base")"
 BRANCH_LIST=""
 if [ "$BRANCH_EQUIV" = "yes" ]; then
-  BRANCH_LIST="$(list_patches "$repo_root/patches/base" "Equivalent patches from patches/base" "$BRANCH_COUNT")"
+  BRANCH_LIST="$(list_patches "$repo_root/patches/base")"
 fi
 
 # Parked patches (*.off.txt) are shipped but deliberately not applied.
@@ -358,9 +345,6 @@ MARKDOWN
   printf '%s\n\n' "$CHANGES"
 
   printf '## Patches applied\n\n'
-  printf '<details>\n'
-  printf '<summary>📦 Patch sets applied to this build (click to expand)</summary>\n\n'
-
   printf '%s\n\n' "$PRIMARY_NOTE"
   printf '### %s\n\n' "$PRIMARY_TITLE"
   printf '%s\n\n' "$PRIMARY_LIST"
@@ -381,8 +365,6 @@ MARKDOWN
     printf '%s' "$DISABLED_LIST"
     printf '\n'
   fi
-
-  printf '</details>\n\n'
 
   printf '## Changelog\n\n'
   printf '### %s\n\n' "$CHANGELOG_HEADING"

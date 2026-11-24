@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: WinterMist010 <85207868+WinterMist010@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:00:00 +0700
+Subject: [PATCH] freedreno: reject A8XX cache layouts that do not fit in GMEM
+
+On A8XX the CCU and VPC buffers are carved out of GMEM, and the
+layout code in fd6_gmem_cache.h multiplies every per-CCU size by
+num_ccu.  If the total exceeds the GMEM size the offsets underflow
+and frame flushes break, which shows up as a black screen.
+
+The classic example is Adreno 810: a 576 KiB GMEM part, where the
+untouched a8xx_gen1 defaults reserve 608 KiB (bv 32K + attr 128K +
+pos 64K + color 128K + depth 256K).  This is not hypothetical, it is
+how the current a8xx_810 VPC/CCU sizes were derived, and it is easy
+to reintroduce by changing num_ccu without rescaling the sizes.
+
+Validate the arithmetic while the tables are built so such a
+configuration cannot ship.  Only entries that declare gmem_size are
+checked.
+
+---
+  src/freedreno/common/freedreno_dev_info.py | 21 +++++++++++++++++++++
+  1 file changed, 21 insertions(+)
+
+diff --git a/src/freedreno/common/freedreno_dev_info.py b/src/freedreno/common/freedreno_dev_info.py
+index 2dfad140967..cd60d340456 100644
+--- a/src/freedreno/common/freedreno_dev_info.py
++++ b/src/freedreno/common/freedreno_dev_info.py
+@@ -225,6 +225,27 @@ class A6xxGPUInfo(GPUInfo):
+         for template in templates:
+             template.apply_props(self)
+ 
++        # On A8XX the CCU and VPC buffers are carved out of GMEM, and the
++        # layout code multiplies every "per CCU" size by num_ccu.  If the
++        # total does not fit, the depth offset underflows (0xFFFF8000) and
++        # frame flushes break - the symptom is a black screen.  Catch it here
++        # instead of at runtime, so a bad num_ccu/size combination cannot be
++        # built.
++        if chip == CHIP.A8XX and getattr(self.props, "gmem_size", 0):
++            reserve = num_ccu * (
++                getattr(self.props, "sysmem_vpc_attr_buf_size", 0) +
++                getattr(self.props, "sysmem_vpc_pos_buf_size", 0) +
++                getattr(self.props, "sysmem_vpc_bv_pos_buf_size", 0) +
++                getattr(self.props, "sysmem_per_ccu_color_cache_size", 0) +
++                getattr(self.props, "sysmem_per_ccu_depth_cache_size", 0))
++            if reserve > self.props.gmem_size:
++                raise ValueError(
++                    "A8XX cache layout needs %u bytes of GMEM but only %u are "
++                    "available (num_ccu=%u).  Reduce num_ccu or the per-CCU "
++                    "VPC/CCU sizes; otherwise the depth offset underflows and "
++                    "the GPU renders black." %
++                    (reserve, self.props.gmem_size, num_ccu))
++
+ 
+     def __str__(self):
+      return super(A6xxGPUInfo, self).__str__().replace('[', '{').replace("]", "}")
